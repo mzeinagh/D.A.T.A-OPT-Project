@@ -1,10 +1,15 @@
-# Core pipeline
+# Core pipeline (used by both the legacy CLI script and core_pipeline/)
 langgraph
 langchain-core
-langchain-ollama
 pymupdf
 sentence-transformers
 numpy
+
+# Only needed by the legacy root-level CLI pipeline (main.py/config.py/nodes/).
+# core_pipeline/ has no Ollama dependency — all three LLM call sites go
+# through llm/ (OpenAI Responses API) instead. Remove this once the legacy
+# scripts are decommissioned (see migration plan, Phase 6 cutover).
+langchain-ollama
 
 # Document processing / OCR (only docling is used by the active pipeline;
 # marker-pdf and paddleocr are only needed if you call ocr_marker() / ocr_paddle()
@@ -12,3 +17,14 @@ numpy
 docling
 # marker-pdf
 # paddleocr
+
+# ---------------------------------------------------------------- Django web app
+django>=5.0,<6.0
+psycopg2-binary
+celery
+redis
+openai
+
+# Dev/test only
+pytest
+pytest-django

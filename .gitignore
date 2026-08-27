@@ -1,0 +1,39 @@
+# ---------------------------------------------------------------- Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---------------------------------------------------------------- Django
+staticfiles/
+media/
+*.sqlite3
+db.sqlite3
+
+# Local env vars — never commit real secrets (OPENAI_API_KEY, DJANGO_SECRET_KEY,
+# DB credentials). Copy .env.example to .env and fill in locally instead.
+.env
+.env.*
+!.env.example
+
+# ---------------------------------------------------------------- Large model weights
+# The all-MiniLM-L6-v2 folder structure is tracked (see embeddings_local/all-MiniLM-L6-v2/hi.txt)
+# but the downloaded model weight files themselves are never committed — see
+# README.md for the one-time local download step.
+embeddings_local/**/*.bin
+embeddings_local/**/*.safetensors
+embeddings_local/**/*.onnx
+embeddings_local/**/*.pt
+embeddings_local/**/*.h5
+embeddings_local/**/pytorch_model*
+embeddings_local/**/model.safetensors*
+
+# ---------------------------------------------------------------- Editors / OS
+.vscode/
+.idea/
+.DS_Store
