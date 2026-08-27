@@ -151,18 +151,22 @@ class TestUploadStatusOwnership:
 
 
 class TestAwaitingReviewMessaging:
-    def test_awaiting_confirmation_shows_notice_without_action_controls(self, logged_in_client, alice):
-        """The status page must never offer a confirm/exclude control —
-        that doesn't exist yet (Phase 5). It should only ever show status."""
+    """Phase 4's status page stays show-only — no confirm/exclude control
+    lives here, that's Phase 5's dedicated studies:review page (see
+    test_review_views.py for proof those controls actually work). This
+    page's job is just to link there."""
+
+    def test_awaiting_confirmation_links_to_review_page(self, logged_in_client, alice):
         batch = self._make_awaiting_batch(alice)
 
         resp = logged_in_client.get(reverse("studies:upload_status", kwargs={"batch_id": batch.id}))
 
         assert resp.status_code == 200
         assert b"needs review" in resp.content
-        # No form/button that could plausibly confirm or exclude a corpus.
-        assert b"name=\"confirm\"" not in resp.content
-        assert b"name=\"exclude\"" not in resp.content
+        review_url = reverse("studies:review", kwargs={"batch_id": batch.id})
+        assert review_url.encode() in resp.content
+        # Still no confirm/exclude form fields directly on *this* page.
+        assert b"name=\"action\"" not in resp.content
 
     def _make_awaiting_batch(self, user):
         pdf_bytes = _make_pdf_bytes(["p"])

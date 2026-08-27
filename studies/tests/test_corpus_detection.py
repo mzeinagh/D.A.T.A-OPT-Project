@@ -177,6 +177,7 @@ class TestDetectionFailure:
     def test_retry_after_failure_can_succeed(self, user, batch, one_question):
         with patch("studies.corpus_detection.build_corpora", side_effect=RuntimeError("boom")):
             run_corpus_detection(batch)
+        batch.refresh_from_db()
         assert batch.split_status == UploadBatch.SplitStatus.FAILED
 
         with patch("studies.tasks.run_pipeline_task.delay"):
@@ -188,6 +189,7 @@ class TestDetectionFailure:
     def test_fallback_to_single_corpus_after_failure(self, user, batch, one_question):
         with patch("studies.corpus_detection.build_corpora", side_effect=RuntimeError("boom")):
             run_corpus_detection(batch)
+        batch.refresh_from_db()
         assert batch.split_status == UploadBatch.SplitStatus.FAILED
 
         with patch("studies.tasks.run_pipeline_task.delay"):

@@ -10,12 +10,20 @@ either confirmed into its own `Study` or explicitly excluded by a person.
 Only this module and `studies/tasks.py` talk to `core_pipeline`/`llm` — the
 dependency direction stays one-way, same as `services.py`.
 
-Status: this module (detection, caching, confirm/exclude, the single-
-corpus fallback) is complete and tested. There is no dedicated, non-admin
-web page for a regular user to drive this yet — Django admin
-(`DetectedCorpusAdmin`) is the only working review/confirm surface today.
-That page is required v1 scope for Phase 5, not optional. See
-`docs/PHASE_STATUS.md` for the up-to-date picture.
+Status: detection, caching, confirm/exclude, the single-corpus fallback,
+and a dedicated review page (`studies/views.py::review_view`) are all
+implemented — see `docs/PHASE_STATUS.md` for the up-to-date picture.
+
+Concurrency: `confirm_detected_corpora`, `process_as_single_corpus`, and
+`run_corpus_detection` all re-fetch `batch` under `select_for_update()`
+before checking/transitioning its `split_status`, so two near-simultaneous
+attempts on the same batch (a double-click, a replayed form submission
+after a refresh) can never both succeed — the second one blocks on the
+row lock until the first commits, then sees the now-changed status and
+raises `ValueError` cleanly instead of creating a second `Study`/
+`PipelineRun`. The `batch` object a caller passes in is only ever used for
+its `.pk` in these functions — never trust its in-memory field values
+across that lock boundary.
 """
 import pymupdf
 from django.conf import settings as django_settings
@@ -70,10 +78,7 @@ def run_corpus_detection(batch: UploadBatch, *, started_by=None) -> None:
       retry (call this again) or fall back to `process_as_single_corpus`.
     """
     started_by = started_by or batch.uploaded_by
-
-    batch.split_status = UploadBatch.SplitStatus.DETECTING
-    batch.split_error_message = ""
-    batch.save(update_fields=["split_status", "split_error_message"])
+    batch = _claim_batch(batch, forbid_statuses=(UploadBatch.SplitStatus.CONFIRMED,))
 
     try:
         pdf_path = batch.uploaded_file.path
@@ -120,10 +125,7 @@ def process_as_single_corpus(batch: UploadBatch, *, started_by=None) -> None:
     to only find one corpus this time."
     """
     started_by = started_by or batch.uploaded_by
-
-    batch.split_status = UploadBatch.SplitStatus.DETECTING
-    batch.split_error_message = ""
-    batch.save(update_fields=["split_status", "split_error_message"])
+    batch = _claim_batch(batch, forbid_statuses=(UploadBatch.SplitStatus.CONFIRMED,))
 
     try:
         pdf_path = batch.uploaded_file.path
@@ -161,26 +163,37 @@ def confirm_detected_corpora(
     review view or the admin's "Confirm selected" action passes after the
     user's final include/exclude choices; omitted, falls back to whatever
     `included=True` already says on each row.
+
+    Locks `batch`'s row for the whole check-materialize-transition, so a
+    second concurrent call (double-click, a replayed submit after a
+    refresh) can never also succeed — it blocks until this one commits,
+    then sees `split_status` is no longer confirmable and raises
+    `ValueError` instead of creating a second set of Studies/PipelineRuns.
     """
-    if batch.split_status not in (UploadBatch.SplitStatus.DETECTING, UploadBatch.SplitStatus.AWAITING_CONFIRMATION):
-        raise ValueError(
-            f"UploadBatch {batch.id} is not awaiting confirmation (split_status={batch.split_status})."
-        )
-
-    queryset = batch.detected_corpora.all()
-    queryset = queryset.filter(id__in=corpus_ids) if corpus_ids is not None else queryset.filter(included=True)
-    detected_list = list(queryset.order_by("order"))
-
-    if not detected_list:
-        raise ValueError("No corpus selected to confirm.")
-
     with transaction.atomic():
+        locked_batch = UploadBatch.objects.select_for_update().get(pk=batch.pk)
+        if locked_batch.split_status not in (
+            UploadBatch.SplitStatus.DETECTING,
+            UploadBatch.SplitStatus.AWAITING_CONFIRMATION,
+        ):
+            raise ValueError(
+                f"UploadBatch {locked_batch.id} is not awaiting confirmation "
+                f"(status: {locked_batch.get_split_status_display()})."
+            )
+
+        queryset = locked_batch.detected_corpora.all()
+        queryset = queryset.filter(id__in=corpus_ids) if corpus_ids is not None else queryset.filter(included=True)
+        detected_list = list(queryset.order_by("order"))
+
+        if not detected_list:
+            raise ValueError("No corpus selected to confirm.")
+
         studies = [_materialize_study(detected) for detected in detected_list]
 
-        batch.split_status = UploadBatch.SplitStatus.CONFIRMED
-        batch.confirmed_by = confirmed_by
-        batch.confirmed_at = timezone.now()
-        batch.save(update_fields=["split_status", "confirmed_by", "confirmed_at"])
+        locked_batch.split_status = UploadBatch.SplitStatus.CONFIRMED
+        locked_batch.confirmed_by = confirmed_by
+        locked_batch.confirmed_at = timezone.now()
+        locked_batch.save(update_fields=["split_status", "confirmed_by", "confirmed_at"])
 
     for study in studies:
         run = start_pipeline_run(study, confirmed_by)
@@ -189,6 +202,42 @@ def confirm_detected_corpora(
         run_pipeline_task.delay(run.id)
 
     return studies
+
+
+def cancel_review(batch: UploadBatch, *, cancelled_by=None) -> None:
+    """Stops a pending review with no Study/PipelineRun ever created for
+    it. Refuses (raises `ValueError`) if `batch` has already been
+    confirmed — cancelling is for "don't proceed", not "undo a
+    confirmation already acted on". Same row-locking discipline as
+    `confirm_detected_corpora`, for the same reason.
+    """
+    with transaction.atomic():
+        locked_batch = UploadBatch.objects.select_for_update().get(pk=batch.pk)
+        if locked_batch.split_status == UploadBatch.SplitStatus.CONFIRMED:
+            raise ValueError(f"UploadBatch {locked_batch.id} has already been confirmed — nothing to cancel.")
+        locked_batch.split_status = UploadBatch.SplitStatus.CANCELLED
+        locked_batch.save(update_fields=["split_status"])
+
+
+def _claim_batch(batch: UploadBatch, *, forbid_statuses: tuple) -> UploadBatch:
+    """Locks `batch`'s row just long enough to check its current
+    `split_status` against `forbid_statuses` and, if allowed, transition
+    it to `DETECTING` — the short atomic "claim" every entry point that's
+    about to do slow work (PDF parsing, OCR) uses, so the row is only
+    locked for the instant check-and-transition, never for the slow work
+    itself. Returns the fresh instance; raises `ValueError` if forbidden.
+    """
+    with transaction.atomic():
+        locked = UploadBatch.objects.select_for_update().get(pk=batch.pk)
+        if locked.split_status in forbid_statuses:
+            raise ValueError(
+                f"UploadBatch {locked.id} cannot be processed from its current status "
+                f"({locked.get_split_status_display()})."
+            )
+        locked.split_status = UploadBatch.SplitStatus.DETECTING
+        locked.split_error_message = ""
+        locked.save(update_fields=["split_status", "split_error_message"])
+    return locked
 
 
 def _create_detected_corpus(batch: UploadBatch, idx: int, corpus: dict, page_events: list[dict]) -> DetectedCorpus:

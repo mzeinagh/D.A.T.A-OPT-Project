@@ -6,8 +6,8 @@ messages. Update it whenever a phase's user-facing surface changes.
 
 ## Multi-corpus processing (long-report split / integrated-report split)
 
-**Backend: complete. User interface: incomplete — this is a known, tracked
-v1 gap, not an oversight.**
+**Backend and user interface: both complete.** This was tracked here as a
+known v1 gap through Phase 4; it is closed as of Phase 5.
 
 What exists today:
 - `core_pipeline.document_processor.build_corpora()` detects and
@@ -20,32 +20,51 @@ What exists today:
   numbers, shared-vs-specific pages, a preview, and detection warnings),
   pausing before any GPT-5 call for anything beyond the single-corpus,
   no-review-requested case.
-- `studies.corpus_detection.confirm_detected_corpora()` and
-  `process_as_single_corpus()` implement include/exclude, title editing
-  (a plain field edit), confirm, and the "process the original PDF as one
-  corpus" fallback — fully, and covered by tests
+- `studies.corpus_detection.confirm_detected_corpora()`,
+  `process_as_single_corpus()`, and `cancel_review()` implement
+  include/exclude, title editing, confirm, the "process the original PDF
+  as one corpus" fallback, and cancel — all lock the `UploadBatch` row
+  (`select_for_update()`) for their check-and-transition, so two
+  near-simultaneous attempts on the same batch (a double-click, a
+  replayed form submission after a refresh) can never both succeed: the
+  second one raises `ValueError` cleanly instead of creating a second
+  `Study`/`PipelineRun`. Fully covered by tests
   (`studies/tests/test_corpus_detection.py`).
-- **Django admin** (`DetectedCorpusAdmin`, `UploadBatchAdmin`) is wired up
-  as a *working* review/confirm surface today — an admin/staff user can
-  see every field the eventual page needs and run the "Confirm selected"
-  action for real. This is intentionally the interim surface for
-  development and administrator use, per the same pattern already used
-  for `Question`/`PromptConfig` governance.
+- **A dedicated, non-admin web page** — `studies:review`
+  (`studies/views.py::review_view`, template `studies/review.html`) — is
+  the primary way any authenticated regular user reviews their own
+  uploads: title/category/page ranges/shared-vs-specific pages/preview/
+  detection type/warnings are all shown per corpus, with real
+  include/exclude checkboxes and an editable title field, and three
+  explicit actions (confirm selected / process original PDF as one
+  corpus / cancel). Ownership is enforced server-side
+  (`_can_access_batch`) — the uploader or any staff user, no one else.
+  Stale uploads (already confirmed, cancelled, failed, or still
+  detecting) redirect safely to the status page with an explanation
+  rather than presenting a form that can't be submitted. Fully covered
+  by tests (`studies/tests/test_review_views.py`).
+- After confirming, the user is redirected to `studies:upload_status`,
+  which now lists every `Study` created from the batch alongside its
+  `PipelineRun`(s) and their status/call counts.
+- **Django admin** (`DetectedCorpusAdmin`, `UploadBatchAdmin`) remains
+  available as a secondary surface for staff/development use (its
+  "Confirm selected" action still works), but is no longer the *only*
+  way to act on a pending review — see the note in Phase 4's entry below,
+  now resolved.
 
-What does **not** exist yet:
-- A normal, non-admin, authenticated **web page** where a regular lab
-  user (not staff) can view their detected corpora, edit titles,
-  include/exclude, confirm, fall back to single-corpus processing, or
-  cancel. **This is scoped as a required v1 feature of Phase 5, not an
-  optional enhancement** — see the Phase 5 entry below.
-- Until that page exists, a regular (non-staff) user who uploads a PDF
-  that triggers multi-corpus review (a long-report split they requested,
-  or an integrated multi-assessment report detected automatically) has
-  **no way to complete that upload** — nothing in the ordinary
-  application UI can confirm a pending corpus review for them. Only a
-  staff user with Django admin access can unblock it today. Don't
-  represent multi-corpus processing as usable end-to-end by a regular
-  user until Phase 5's review page ships.
+What does **not** exist yet (unrelated to the corpus-review gap above,
+just not yet built):
+- A general study list/detail view, answer views, or export views —
+  `studies:upload_status` is the only per-batch overview page so far.
+- Any admin-triggered retry/fallback action surfaced in the *regular*
+  UI for a batch already marked `FAILED` before Phase 5 landed — the
+  review page's fallback actions only appear while a batch is
+  `AWAITING_CONFIRMATION`. A `FAILED` batch's status page links to the
+  review page, but `review_view` itself only renders the form for a
+  batch actually awaiting confirmation; a failed batch needs a fresh
+  detection attempt (currently only triggerable via `manage.py shell`/
+  Django admin, not a button in the regular UI). Worth a small follow-up
+  if failed detections turn out to be common in practice.
 
 ## Phase plan (current)
 
@@ -56,12 +75,13 @@ What does **not** exist yet:
 | 2 | `studies` data model, admin, prompt-version snapshotting | Done |
 | 3 | Celery task, OCR provenance/timeout, usage tracking, cost limit | Done |
 | 3.5 | Corpus detection/review generalized (long-report + integrated-report), data/service/admin layer | Done |
-| 4 | Upload flow: authenticated upload form + status view (no review/confirm UI) | In progress |
-| 5 | Web UI — **including the corpus-review page above as a required v1 feature**, study list/detail, answer views, export views, status polling | Not started |
-| 6 | Access & observability hardening, then the legacy-script cutover | Not started |
+| 4 | Upload flow: authenticated upload form + status view | Done |
+| 5 | Web UI — dedicated corpus-review page (required v1 feature), status page enhanced to show runs | Done |
+| 6 | Access & observability hardening, general study list/detail + answer/export views, then the legacy-script cutover | Not started |
 | 7 | Prompt optimization (deliberately last, after output-parity testing) | Not started |
 
-Phase 4 deliberately does **not** include the corpus-review page — only
-the upload form and a status view a user can check after uploading. The
-review/confirm page is Phase 5's job, and per the explicit decision
-above, it ships as required v1 scope there, not as a "nice to have."
+Phase 5 delivered specifically the corpus-review page and the retry/
+fallback/cancel actions around it. A broader study list/detail and
+answer/export browsing experience is still open — folded into Phase 6
+rather than tracked as a separate phase, since it's naturally paired with
+the access-control hardening pass.

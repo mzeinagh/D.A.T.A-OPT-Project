@@ -1,12 +1,10 @@
-"""Phase 4: the upload form. Deliberately small — just the file and the
-split checkbox (decision 8's "Split this PDF into multiple studies",
-unchecked by default). Everything past "create the UploadBatch and kick
-off detection" (review, confirm, exclude, title editing) is Phase 5's
-dedicated review page, not this form.
+"""Phase 4's upload form (file + split checkbox) and Phase 5's corpus
+review form (per-corpus title editing + include/exclude, as a formset).
 """
 from django import forms
+from django.forms import modelformset_factory
 
-from .models import UploadBatch
+from .models import DetectedCorpus, UploadBatch
 
 MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024  # 100MB — generous for a scanned regulatory PDF, not unbounded
 
@@ -45,3 +43,25 @@ class UploadBatchForm(forms.ModelForm):
             )
 
         return file
+
+
+class DetectedCorpusForm(forms.ModelForm):
+    """One row of the review page: the only two fields a user may actually
+    change about a detected corpus — its proposed title, and whether it's
+    included at all. Everything else shown on the review page (category,
+    pages, preview, warnings...) is read-only, straight off the instance.
+    """
+
+    class Meta:
+        model = DetectedCorpus
+        fields = ["title", "included"]
+        widgets = {"title": forms.TextInput(attrs={"size": 50})}
+
+    def clean_title(self):
+        title = self.cleaned_data["title"].strip()
+        if not title:
+            raise forms.ValidationError("Title cannot be empty.")
+        return title
+
+
+DetectedCorpusFormSet = modelformset_factory(DetectedCorpus, form=DetectedCorpusForm, extra=0)

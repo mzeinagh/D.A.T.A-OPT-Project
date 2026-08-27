@@ -45,6 +45,11 @@ class UploadBatch(models.Model):
         AWAITING_CONFIRMATION = "awaiting_confirmation", "Awaiting confirmation"
         CONFIRMED = "confirmed", "Confirmed"
         FAILED = "failed", "Failed"
+        # A person explicitly stopped a pending review — distinct from
+        # FAILED (an error happened) and from CONFIRMED (already acted on).
+        # Retryable: run_corpus_detection/process_as_single_corpus don't
+        # refuse a CANCELLED batch, only a CONFIRMED one.
+        CANCELLED = "cancelled", "Cancelled"
 
     uploaded_file = models.FileField(upload_to="uploads/%Y/%m/%d/")
     original_filename = models.CharField(max_length=255, blank=True, default="")
@@ -152,6 +157,36 @@ class DetectedCorpus(models.Model):
         stored, so it can never drift out of sync with either field."""
         shared = set(self.shared_page_numbers)
         return [p for p in self.page_numbers if p not in shared]
+
+    @staticmethod
+    def _compress_to_ranges(numbers):
+        """[1,2,3,5,7,8,9] -> "1-3, 5, 7-9" — for the review page, where a
+        raw list of every page number is harder to scan than ranges."""
+        if not numbers:
+            return ""
+        ordered = sorted(set(numbers))
+        parts = []
+        start = prev = ordered[0]
+        for n in ordered[1:]:
+            if n == prev + 1:
+                prev = n
+                continue
+            parts.append(f"{start}-{prev}" if start != prev else str(start))
+            start = prev = n
+        parts.append(f"{start}-{prev}" if start != prev else str(start))
+        return ", ".join(parts)
+
+    @property
+    def page_range_display(self):
+        return self._compress_to_ranges(self.page_numbers)
+
+    @property
+    def shared_page_range_display(self):
+        return self._compress_to_ranges(self.shared_page_numbers)
+
+    @property
+    def assessment_specific_page_range_display(self):
+        return self._compress_to_ranges(self.assessment_specific_page_numbers)
 
 
 class Study(models.Model):

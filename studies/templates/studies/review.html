@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Review — {{ batch.original_filename }} — D.A.T.A{% endblock %}
+{% block content %}
+    <h1>Review detected corpora</h1>
+    <p><strong>{{ batch.original_filename }}</strong> — {{ formset.forms|length }} possible
+       {% if formset.forms|length == 1 %}study/assessment{% else %}studies/assessments{% endif %}
+       detected. Nothing has been sent to GPT-5 yet. Review each one below, then confirm.</p>
+
+    {% if formset.non_form_errors %}
+        <ul class="errorlist">{% for e in formset.non_form_errors %}<li>{{ e }}</li>{% endfor %}</ul>
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+        {{ formset.management_form }}
+
+        {% for form in formset %}
+            {% with corpus=form.instance %}
+            <fieldset style="margin-bottom:1.5rem;border:1px solid #ddd;border-radius:6px;padding:1rem;">
+                {{ form.id }}
+                <div class="field">
+                    <label>
+                        {{ form.included }}
+                        Include this corpus
+                    </label>
+                </div>
+
+                <div class="field">
+                    <label for="{{ form.title.id_for_label }}">Proposed title</label>
+                    {{ form.title }}
+                    {% if form.title.errors %}
+                        <ul class="errorlist">{% for e in form.title.errors %}<li>{{ e }}</li>{% endfor %}</ul>
+                    {% endif %}
+                </div>
+
+                <table>
+                    <tr><th>Detection type</th><td>{{ corpus.get_detection_type_display }}</td></tr>
+                    <tr><th>Category</th><td>{{ corpus.assessment_category|default:"—" }}</td></tr>
+                    <tr><th>Pages</th><td>{{ corpus.page_range_display|default:"—" }}</td></tr>
+                    <tr><th>Shared pages</th><td>{{ corpus.shared_page_range_display|default:"(none)" }}</td></tr>
+                    <tr><th>Assessment-specific pages</th><td>{{ corpus.assessment_specific_page_range_display|default:"(none)" }}</td></tr>
+                </table>
+
+                {% if corpus.detection_warnings %}
+                    <div class="notice">
+                        <strong>Detection warnings</strong>
+                        <ul>{% for w in corpus.detection_warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+                    </div>
+                {% endif %}
+
+                {% if corpus.preview_text %}
+                    <details>
+                        <summary>Preview extracted text</summary>
+                        <p style="white-space:pre-wrap;font-size:0.85rem;color:#333;">{{ corpus.preview_text }}</p>
+                    </details>
+                {% endif %}
+            </fieldset>
+            {% endwith %}
+        {% endfor %}
+
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+            <button type="submit" name="action" value="confirm">Confirm selected corpora</button>
+            <button type="submit" name="action" value="process_as_single">Process original PDF as one corpus instead</button>
+            <button type="submit" name="action" value="cancel">Cancel</button>
+        </div>
+    </form>
+{% endblock %}
