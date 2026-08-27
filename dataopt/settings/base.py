@@ -50,8 +50,10 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    # "studies" is added here in Phase 2 once the app exists — the project
-    # is deliberately runnable (admin, auth) before that lands.
+    # "studies" exists from Phase 1 on, but only to host the run_pipeline
+    # management command — it has no models yet. Phase 2 gives it a real
+    # data model (UploadBatch, Study, PipelineRun, Answer, ...).
+    "studies",
 ]
 
 MIDDLEWARE = [

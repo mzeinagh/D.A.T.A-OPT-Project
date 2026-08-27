@@ -10,6 +10,6 @@ Phase 0 only defines the interface (`base.py`). The concrete
 alongside the retry/timeout/cost-tracking wiring described in the migration
 plan.
 """
-from .base import LLMClient, LLMResult
+from .base import LLMClient, LLMResult, OnCallHook
 
-__all__ = ("LLMClient", "LLMResult")
+__all__ = ("LLMClient", "LLMResult", "OnCallHook")

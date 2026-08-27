@@ -17,9 +17,18 @@ This module has no Django import and no provider SDK import — it stays
 usable from a plain script or a test, exactly like `core_pipeline`.
 """
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Callable, Literal, Protocol
 
 CallStatus = Literal["success", "failed", "timeout"]
+
+# Invoked by a concrete client after every call (success or failure), with
+# the calling node's name and the resulting LLMResult. Optional — nothing
+# in Phase 0/1 uses this yet. It exists as the integration point Phase 3's
+# run-orchestration service is expected to use to persist an `LLMCallLog`
+# row per call and accumulate `PipelineRun` usage/cost totals in real time
+# (including checking a per-run cost limit before the *next* call), without
+# requiring any further change to `llm/` or the pipeline nodes.
+OnCallHook = Callable[[str | None, "LLMResult"], None]
 
 
 @dataclass
@@ -42,6 +51,7 @@ class LLMResult:
     retry_count: int = 0
     error_message: str | None = None
     raw_response_id: str | None = None
+    estimated_cost_usd: float | None = None
     metadata: dict = field(default_factory=dict)
 
     @property
