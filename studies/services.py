@@ -7,14 +7,19 @@ and `llm`, never the reverse — neither of those packages knows `studies`
 versioning requirement (decision 9): every `PipelineRun` must carry an
 immutable snapshot of the question set and prompt config it used, and
 editing `Question`/`PromptConfig` afterward must never retroactively change
-a completed run. Phase 3 is what actually calls this at run start and sets
-`PipelineRun.prompt_config_version` from its result — this function exists
-now so that call site has something correct to call.
+a completed run.
+
+`start_pipeline_run()` is Phase 3's addition: it's what a future upload/
+confirm view (Phase 4) will call to create the pending `PipelineRun` that
+`studies.tasks.run_pipeline_task` then executes. It exists now, ahead of
+that view, because the Celery task needs a real row to run against to be
+testable at all — see `studies/tasks.py` and its tests.
 """
+from django.conf import settings as django_settings
 from django.db import transaction
 from django.db.models import Max
 
-from .models import PromptConfig, PromptConfigVersion, Question, QuestionSnapshot
+from .models import PipelineRun, PromptConfig, PromptConfigVersion, Question, QuestionSnapshot, Study
 
 
 class NoActivePromptConfigError(RuntimeError):
@@ -101,3 +106,54 @@ def _snapshot_matches_live_state(
             return False
 
     return True
+
+
+def start_pipeline_run(
+    study: Study,
+    started_by,
+    *,
+    debugging: bool = False,
+    split: bool = False,
+    cost_limit_enabled: bool = False,
+    cost_limit_usd: float | None = None,
+) -> PipelineRun:
+    """Creates a pending `PipelineRun` for `study`, snapshotting the current
+    question set/prompt config (raises `NoActivePromptConfigError` if none
+    is active — no silent fallback). Does not enqueue the Celery task
+    itself; callers do `run_pipeline_task.delay(run.id)` (or call it
+    directly, synchronously, in tests) once this returns.
+
+    `cost_limit_enabled`/`cost_limit_usd` default to disabled/None, per the
+    decision that the per-run cost limit stays off until benchmark data
+    exists to set it sensibly.
+    """
+    version = get_or_create_current_prompt_config_version()
+
+    with transaction.atomic():
+        next_run_number = (
+            PipelineRun.objects.filter(study=study).aggregate(m=Max("run_number"))["m"] or 0
+        ) + 1
+
+        run = PipelineRun.objects.create(
+            study=study,
+            run_number=next_run_number,
+            started_by=started_by,
+            debugging=debugging,
+            split=split,
+            prompt_config_version=version,
+            question_set_snapshot=[
+                {
+                    "order": snap.order,
+                    "text": snap.text,
+                    "keywords": snap.keywords,
+                    "condition_note": snap.condition_note,
+                }
+                for snap in version.question_snapshots.order_by("order", "id")
+            ],
+            llm_provider="openai",
+            llm_model=django_settings.OPENAI_MODEL,
+            cost_limit_enabled=cost_limit_enabled,
+            cost_limit_usd=cost_limit_usd,
+        )
+
+    return run

@@ -15,6 +15,10 @@ media/
 *.sqlite3
 db.sqlite3
 
+# Local Redis persistence dump (created by `redis-server` when run locally
+# for development/testing — never part of the app itself).
+dump.rdb
+
 # Local env vars — never commit real secrets (OPENAI_API_KEY, DJANGO_SECRET_KEY,
 # DB credentials). Copy .env.example to .env and fill in locally instead.
 .env
