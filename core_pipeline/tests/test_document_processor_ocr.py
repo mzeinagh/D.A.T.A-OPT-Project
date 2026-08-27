@@ -6,6 +6,7 @@ real (tiny, synthetic) PDF, built with pymupdf directly rather than
 checking in a binary fixture.
 """
 import time
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pymupdf
@@ -187,3 +188,95 @@ class TestBuildCorpusForPageRange:
         assert corpus["source"] == "single"
         assert [p["page_num"] for p in seen] == [2, 3]
         assert [d.metadata["page_num"] for d in corpus["docs"]] == [2, 3]
+
+
+class TestCorpusReviewMetadata:
+    def test_single_corpus_has_page_numbers_no_shared_no_category(self, tmp_path):
+        pdf_fp = _make_pdf(tmp_path, ["Page one text.", "Page two text."])
+        with patch.object(dp, "chunk_integrated", return_value=[]):
+            corpora = dp.build_corpora(pdf_fp)
+
+        corpus = corpora[0]
+        assert corpus["page_numbers"] == [1, 2]
+        assert corpus["shared_page_numbers"] == []
+        assert corpus["assessment_category"] == ""
+
+    def test_missing_title_page_and_summary_produce_warnings(self, tmp_path):
+        pdf_fp = _make_pdf(tmp_path, ["Just some ordinary body text, nothing special here."])
+        with patch.object(dp, "chunk_integrated", return_value=[]), patch.object(
+            dp, "_find_title_page", return_value=None
+        ), patch.object(dp, "_get_summary", return_value=None):
+            corpora = dp.build_corpora(pdf_fp)
+
+        warnings = corpora[0]["detection_warnings"]
+        assert "No title page detected." in warnings
+        assert "No summary/abstract section found." in warnings
+
+    def test_build_corpus_for_page_range_also_carries_review_metadata(self, tmp_path):
+        pdf_fp = _make_pdf(tmp_path, ["Page one.", "Page two."])
+        corpus = dp.build_corpus_for_page_range(pdf_fp, page_range=[1, 2])
+        assert corpus["page_numbers"] == [1, 2]
+        assert corpus["assessment_category"] == ""
+        assert isinstance(corpus["detection_warnings"], list)
+
+    def test_integrated_corpus_carries_category_and_shared_pages(self, tmp_path):
+        """Uses SimpleNamespace stand-ins for chunk_integrated's Section
+        (a local dataclass inside that function, not importable directly) —
+        build_corpora's integrated branch only reads .title/.page_num/.content."""
+        pdf_fp = _make_pdf(tmp_path, ["Title page.", "Toxicity section page.", "Summary page."])
+        shared = SimpleNamespace(page_num=3, content="Overall report summary.", title="Summary")
+        target = SimpleNamespace(page_num=2, content="Toxicity assessment details.", title="Toxicity -> Repeat Dose")
+
+        with patch.object(dp, "chunk_integrated", return_value=[shared, target]):
+            corpora = dp.build_corpora(pdf_fp)
+
+        assert len(corpora) == 1
+        corpus = corpora[0]
+        assert corpus["source"] == "integrated"
+        assert corpus["assessment_category"] == "toxicity"
+        assert corpus["shared_page_numbers"] == [3]
+        assert corpus["page_numbers"] == [2, 3]
+        assert corpus["label"] == "Toxicity_Repeat Dose"
+
+    def test_environmental_and_residue_are_not_toxicity(self, tmp_path):
+        """With build_corpora's *default* target_high_level/negative_titles,
+        an environmental section is filtered out entirely before it's ever
+        classified (negative_titles defaults to ["environmental",
+        "residue"]) — falling through to the 'single' path instead of
+        surfacing as its own corpus. That default is exactly right for a
+        caller that only ever wants toxicity sections. The corpus-detection
+        service (studies/corpus_detection.py) deliberately calls
+        build_corpora with a *broadened* target_high_level and
+        negative_titles=[] instead, specifically so environmental/residue
+        sections DO surface as their own reviewable corpora — correctly
+        labeled, never silently dropped nor mislabeled as toxicity — per
+        the requirement that users get to exclude assessment types
+        themselves rather than have them disappear before review. This
+        test exercises that broadened call shape directly.
+        """
+        pdf_fp = _make_pdf(tmp_path, ["Environmental section page."])
+        target = SimpleNamespace(page_num=1, content="Environmental fate and effects.", title="Environmental -> Aquatic Toxicity")
+
+        with patch.object(dp, "chunk_integrated", return_value=[target]):
+            corpora = dp.build_corpora(
+                pdf_fp,
+                target_high_level=["toxicity", "toxicology", "toxicological", "mammalian", "environmental", "residue"],
+                negative_titles=[],
+            )
+
+        assert corpora[0]["source"] == "integrated"
+        assert corpora[0]["assessment_category"] == "environmental"
+        assert corpora[0]["assessment_category"] != "toxicity"
+
+    def test_default_negative_titles_drops_environmental_before_classification(self, tmp_path):
+        """Documents the existing default behavior precisely, so the
+        broadened call above reads as a deliberate choice, not a surprise:
+        with defaults, this section never becomes its own corpus at all."""
+        pdf_fp = _make_pdf(tmp_path, ["Environmental section page."])
+        target = SimpleNamespace(page_num=1, content="Environmental fate and effects.", title="Environmental -> Aquatic Toxicity")
+
+        with patch.object(dp, "chunk_integrated", return_value=[target]):
+            corpora = dp.build_corpora(pdf_fp)
+
+        assert len(corpora) == 1
+        assert corpora[0]["source"] == "single"  # fell through, not 'integrated'

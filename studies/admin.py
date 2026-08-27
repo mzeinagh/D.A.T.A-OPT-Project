@@ -10,9 +10,10 @@ redesign.
 """
 from django.contrib import admin
 
+from .corpus_detection import confirm_detected_corpora
 from .models import (
     Answer,
-    DetectedStudyBoundary,
+    DetectedCorpus,
     LLMCallLog,
     PipelineRun,
     PromptConfig,
@@ -27,11 +28,22 @@ from .models import (
 
 # ============================================================ Upload & split
 
-class DetectedStudyBoundaryInline(admin.TabularInline):
-    model = DetectedStudyBoundary
+class DetectedCorpusInline(admin.TabularInline):
+    """The interim review surface for decision-update's "review page"
+    requirement, until Phase 5 builds a dedicated one: an admin can see
+    every detected corpus for a batch here, edit its title, toggle
+    `included`, and use the "Confirm selected" action on the
+    DetectedCorpus changelist (not available from an inline) to proceed.
+    """
+    model = DetectedCorpus
     extra = 0
-    fields = ("order", "page_start", "page_end", "suggested_title", "included")
-    ordering = ("order", "page_start")
+    fields = ("order", "detection_type", "title", "assessment_category", "page_numbers", "included")
+    readonly_fields = ("order", "detection_type", "page_numbers")
+    ordering = ("order",)
+
+    def has_add_permission(self, request, obj=None):
+        # Only ever created by corpus detection itself.
+        return False
 
 
 @admin.register(UploadBatch)
@@ -48,14 +60,89 @@ class UploadBatchAdmin(admin.ModelAdmin):
     )
     list_filter = ("split_requested", "split_status")
     search_fields = ("original_filename", "uploaded_by__username")
-    readonly_fields = ("uploaded_at",)
-    inlines = [DetectedStudyBoundaryInline]
+    readonly_fields = ("uploaded_at", "split_status", "split_error_message")
+    inlines = [DetectedCorpusInline]
+
+
+@admin.register(DetectedCorpus)
+class DetectedCorpusAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "batch",
+        "order",
+        "detection_type",
+        "title",
+        "assessment_category",
+        "page_count",
+        "shared_page_count",
+        "included",
+        "warning_count",
+    )
+    list_filter = ("detection_type", "assessment_category", "included")
+    list_editable = ("title", "included")
+    search_fields = ("title", "batch__original_filename")
+    readonly_fields = (
+        "batch",
+        "order",
+        "detection_type",
+        "assessment_category",
+        "page_numbers",
+        "shared_page_numbers",
+        "preview_text",
+        "detection_warnings",
+        "created_at",
+    )
+    actions = ["confirm_selected"]
+
+    @admin.display(description="Pages")
+    def page_count(self, obj):
+        return len(obj.page_numbers)
+
+    @admin.display(description="Shared pages")
+    def shared_page_count(self, obj):
+        return len(obj.shared_page_numbers)
+
+    @admin.display(description="Warnings")
+    def warning_count(self, obj):
+        return len(obj.detection_warnings)
+
+    @admin.action(description="Confirm selected corpora (creates Study + starts GPT-5 processing)")
+    def confirm_selected(self, request, queryset):
+        batch_ids = set(queryset.values_list("batch_id", flat=True))
+        if len(batch_ids) != 1:
+            self.message_user(
+                request,
+                "Select corpora from exactly one upload batch at a time to confirm.",
+                level="error",
+            )
+            return
+
+        batch = UploadBatch.objects.get(pk=batch_ids.pop())
+        try:
+            studies = confirm_detected_corpora(
+                batch, confirmed_by=request.user, corpus_ids=list(queryset.values_list("id", flat=True))
+            )
+        except ValueError as exc:
+            self.message_user(request, str(exc), level="error")
+            return
+
+        self.message_user(request, f"Confirmed {len(studies)} corpus/corpora — GPT-5 processing has started.")
 
 
 @admin.register(Study)
 class StudyAdmin(admin.ModelAdmin):
-    list_display = ("id", "label", "batch", "status", "created_at", "started_at", "finished_at")
-    list_filter = ("status",)
+    list_display = (
+        "id",
+        "label",
+        "batch",
+        "detection_type",
+        "assessment_category",
+        "status",
+        "created_at",
+        "started_at",
+        "finished_at",
+    )
+    list_filter = ("status", "detection_type", "assessment_category")
     search_fields = ("label", "batch__original_filename")
     readonly_fields = ("created_at",)
 

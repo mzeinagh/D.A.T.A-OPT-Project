@@ -35,6 +35,11 @@ class UploadBatch(models.Model):
     fails (decision 8)."""
 
     class SplitStatus(models.TextChoices):
+        # NOT_APPLICABLE is the transient pre-detection default — detection
+        # now always runs (an integrated multi-assessment report can
+        # produce multiple corpora regardless of whether splitting was
+        # requested), so this means "hasn't been processed yet", not "no
+        # split flow in play" the way it did before that generalization.
         NOT_APPLICABLE = "not_applicable", "Not applicable"
         DETECTING = "detecting", "Detecting"
         AWAITING_CONFIRMATION = "awaiting_confirmation", "Awaiting confirmation"
@@ -73,33 +78,87 @@ class UploadBatch(models.Model):
         return self.original_filename or self.uploaded_file.name or f"UploadBatch {self.pk}"
 
 
-class DetectedStudyBoundary(models.Model):
-    """A pre-confirmation candidate study boundary from `chunk_report`'s
-    detection pass. No LLM/GPT-5 cost has been incurred for anything
-    represented by this row — that only happens once a `Study` is created
-    from it after user confirmation (decision 8)."""
+class DetectedCorpus(models.Model):
+    """One corpus `core_pipeline.document_processor.build_corpora()`
+    detected for a `batch`, pending human review. Deliberately a neutral
+    term rather than e.g. "DetectedStudy" — a corpus from an integrated
+    regulatory report might be a toxicity assessment, an environmental
+    assessment, a residue assessment, or something else entirely, and
+    nothing here should presume "toxicity study" before a person confirms
+    it (see `assessment_category`). No LLM/GPT-5 cost has been incurred for
+    anything represented by this row — that only happens once a `Study` is
+    materialized from it after confirmation.
 
-    batch = models.ForeignKey(UploadBatch, on_delete=models.CASCADE, related_name="detected_boundaries")
-    page_start = models.PositiveIntegerField()
-    page_end = models.PositiveIntegerField()
-    suggested_title = models.CharField(max_length=255, blank=True, default="")
+    `cached_docs`/`cached_summary`/`cached_title_page`/
+    `cached_page_provenance` hold the *actual* result of
+    `build_corpora()` for this corpus — full construction (including any
+    OCR) runs exactly once, at detection time, not again at confirmation
+    or run time. This means confirming a corpus never re-parses the PDF or
+    re-runs OCR: it just materializes what was already built. The tradeoff
+    is storage (a corpus's page content is duplicated into this row) for
+    determinism (what the reviewer previewed is exactly what gets
+    processed) and never doing OCR work twice.
+    """
+
+    class DetectionType(models.TextChoices):
+        LONG_REPORT_SPLIT = "long_report_split", "Long report split"
+        INTEGRATED_REPORT_SPLIT = "integrated_report_split", "Integrated report split"
+        USER_REQUESTED_SPLIT = "user_requested_split", "User-requested split"
+        SINGLE_DOCUMENT = "single_document", "Single document"
+        OTHER = "other", "Other"
+
+    batch = models.ForeignKey(UploadBatch, on_delete=models.CASCADE, related_name="detected_corpora")
     order = models.PositiveIntegerField(default=0)
-    included = models.BooleanField(
-        default=True, help_text="User can exclude a detected boundary before confirming. v1 does not support resizing page ranges."
+    detection_type = models.CharField(max_length=32, choices=DetectionType.choices)
+
+    title = models.CharField(max_length=255, blank=True, default="", help_text="Proposed title — editable before confirming.")
+    assessment_category = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="For an integrated-report corpus: the matched assessment type (e.g. 'toxicity', "
+        "'environmental', 'residue'). Blank for other detection types, or when not yet classified — "
+        "never defaults to 'toxicity'.",
     )
 
+    page_numbers = models.JSONField(default=list, help_text="Every page number included in this corpus.")
+    shared_page_numbers = models.JSONField(
+        default=list, blank=True, help_text="Subset of page_numbers pulled from report-wide shared sections."
+    )
+    preview_text = models.TextField(blank=True, default="")
+    detection_warnings = models.JSONField(default=list, blank=True, help_text="list[str] of detection uncertainty signals.")
+
+    included = models.BooleanField(default=True, help_text="User can exclude a detected corpus before confirming.")
+
+    cached_docs = models.JSONField(default=list, help_text="[{'content':..., 'metadata':{...}}, ...]")
+    cached_summary = models.JSONField(null=True, blank=True)
+    cached_title_page = models.JSONField(null=True, blank=True)
+    cached_page_provenance = models.JSONField(
+        default=list, blank=True, help_text="Per-page extraction info (matches StudyPage's fields) for the 'single'/'split' paths."
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
     class Meta:
-        ordering = ["order", "page_start"]
+        ordering = ["order", "id"]
+        verbose_name_plural = "detected corpora"
 
     def __str__(self):
-        return f"{self.batch_id}: pages {self.page_start}-{self.page_end}"
+        return self.title or f"Corpus {self.order + 1} of batch {self.batch_id}"
+
+    @property
+    def assessment_specific_page_numbers(self):
+        """`page_numbers` minus `shared_page_numbers` — derived, not
+        stored, so it can never drift out of sync with either field."""
+        shared = set(self.shared_page_numbers)
+        return [p for p in self.page_numbers if p not in shared]
 
 
 class Study(models.Model):
-    """One confirmed unit of work: either the whole uploaded PDF (split not
-    requested) or one confirmed split segment. Exactly one `PipelineRun`
+    """One confirmed unit of work: either the whole uploaded PDF or one
+    confirmed corpus from a multi-corpus batch. Exactly one `PipelineRun`
     lineage is tracked per `Study`, independently of any sibling studies
-    from the same batch (decision 8)."""
+    from the same batch."""
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -110,11 +169,20 @@ class Study(models.Model):
         FAILED = "failed", "Failed"
 
     batch = models.ForeignKey(UploadBatch, on_delete=models.CASCADE, related_name="studies")
-    source_boundary = models.ForeignKey(
-        DetectedStudyBoundary, null=True, blank=True, on_delete=models.SET_NULL, related_name="studies"
+    source_corpus = models.ForeignKey(
+        DetectedCorpus, null=True, blank=True, on_delete=models.SET_NULL, related_name="studies"
     )
     label = models.CharField(max_length=255, blank=True, default="")
     page_range = models.JSONField(null=True, blank=True, help_text="List of 1-based page numbers, or null for the whole document.")
+    detection_type = models.CharField(max_length=32, blank=True, default="", help_text="Copied from source_corpus at confirmation, for convenient querying.")
+    assessment_category = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="Copied from source_corpus. Never assumed to be 'toxicity' — check this before "
+        "describing a Study as a toxicity study, or before running it through the toxicity "
+        "question set at all.",
+    )
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.PENDING)
     error_message = models.TextField(blank=True, default="")
 

@@ -9,15 +9,40 @@ Builds one or more retrieval corpora for a single PDF. A PDF can yield:
      sections (summary/conclusion/etc).
   3. A single corpus covering the whole PDF, otherwise.
 
-Each corpus is a dict: {'label', 'docs', 'summary', 'title_page', 'source'},
-ready to be handed to VectorStore.add_documents() once and reused for every
-question. 'source' is one of 'single' / 'split' / 'integrated', identifying
-which of the three paths above produced it — added in Phase 3 so a caller
-(studies' Celery task) can tell whether a corpus went through the
-per-page OCR-provenance instrumentation below, which only the 'single' and
-'split' paths use (the 'integrated' path builds its documents directly from
-`chunk_integrated`'s sections and never calls `ocr_docling` at all, so
-there is nothing to instrument there).
+Each corpus is a dict, ready to be handed to VectorStore.add_documents()
+once and reused for every question:
+  'label'                — proposed title/identifier, may be None
+  'docs'                 — list[Document] making up the corpus
+  'summary'              — Document | None
+  'title_page'           — Document | None
+  'source'               — 'single' | 'split' | 'integrated', identifying
+                            which of the three paths above produced it —
+                            added in Phase 3 so a caller (studies' corpus-
+                            detection service) can tell whether a corpus
+                            went through the per-page OCR-provenance
+                            instrumentation below, which only the 'single'
+                            and 'split' paths use ('integrated' builds its
+                            documents directly from `chunk_integrated`'s
+                            sections and never calls `ocr_docling`, so
+                            there is nothing to instrument there).
+  'assessment_category'  — for 'integrated' corpora, the matched high-level
+                            assessment title (e.g. "toxicity",
+                            "environmental", "residue"), lowercased; ''
+                            for 'single'/'split' corpora, where the concept
+                            doesn't apply. Never assumed to be "toxicity" —
+                            a caller must check this before treating a
+                            corpus as a toxicity study.
+  'page_numbers'         — sorted list of every page number represented in
+                            'docs'.
+  'shared_page_numbers'  — subset of 'page_numbers' that came from report-
+                            wide shared sections (summary/conclusion/etc.)
+                            rather than the corpus's own assessment-
+                            specific section; only ever non-empty for
+                            'integrated' corpora.
+  'detection_warnings'   — list[str] of simple, generic uncertainty
+                            signals (e.g. no title page found), so a review
+                            UI has something concrete to show rather than
+                            silently guessing.
 
 Ported from the original DATA_Project pipeline; import paths were updated
 (`models` -> `.schemas`, `utils` -> `.utils`) and, in Phase 3, per-page OCR
@@ -173,6 +198,30 @@ def _pages_to_documents(
     return docs
 
 
+def _corpus_review_metadata(docs, summary, title_page, shared_page_numbers=None):
+    """Computes the additive review-facing fields every corpus dict carries
+    (added for the corpus-detection/review workflow): 'page_numbers' (every
+    page actually represented in `docs`), 'shared_page_numbers' (the subset
+    of those coming from report-wide shared sections — only ever non-empty
+    for the 'integrated' path), and 'detection_warnings' (simple, generic
+    uncertainty signals — a caller building a review UI needs *something*
+    here, not silence, when detection found no title page or no summary).
+    """
+    page_numbers = sorted({
+        d.metadata['page_num'] for d in docs if isinstance(d.metadata.get('page_num'), int)
+    })
+    warnings = []
+    if title_page is None:
+        warnings.append("No title page detected.")
+    if summary is None:
+        warnings.append("No summary/abstract section found.")
+    return {
+        'page_numbers': page_numbers,
+        'shared_page_numbers': sorted(shared_page_numbers) if shared_page_numbers else [],
+        'detection_warnings': warnings,
+    }
+
+
 def _get_summary(study_fp: str, page_range: list[int] | None = None):
     target_sections = detect_sections(pdf_fp=study_fp, target_titles=SUMMARY_TARGETS, searching=True)
 
@@ -209,9 +258,21 @@ def build_corpora(
     'integrated' path never calls it, so they have no effect there; see
     the module docstring's note on the 'source' key for how to tell which
     path a given corpus came from.
+
+    A third pre-existing bug fixed here, confirmed identical in the
+    untouched legacy `document_processor.py`: `target_high_level`/
+    `negative_titles` used to default via `x = x or [...]`, which silently
+    replaces an intentionally passed `[]` with the built-in default too —
+    Python's `or` treats an empty list as falsy, so there was never a way
+    for a caller to actually pass "no exclusions". Callers that don't pass
+    these at all are unaffected (still get the same defaults); this only
+    changes behavior for a caller that explicitly passes `[]`, which
+    previously silently did nothing.
     """
-    target_high_level = target_high_level or ["toxicity", "toxicology", "toxicological", "mammalian"]
-    negative_titles = negative_titles or ["environmental", "residue"]
+    if target_high_level is None:
+        target_high_level = ["toxicity", "toxicology", "toxicological", "mammalian"]
+    if negative_titles is None:
+        negative_titles = ["environmental", "residue"]
 
     chunks = None
     if split:
@@ -249,6 +310,8 @@ def build_corpora(
                 'summary': summary,
                 'title_page': title_page,
                 'source': 'split',
+                'assessment_category': '',
+                **_corpus_review_metadata(docs, summary, title_page),
             })
         return corpora
 
@@ -320,6 +383,15 @@ def build_corpora(
                 'summary': summary,
                 'title_page': title_page,
                 'source': 'integrated',
+                # The matched high-level assessment title (e.g. "toxicity",
+                # "environmental", "residue") — never assumed to be
+                # "toxicity" by default; a caller must not treat this corpus
+                # as a toxicity study without checking this field.
+                'assessment_category': high_level_title.strip().lower(),
+                **_corpus_review_metadata(
+                    docs, summary, title_page,
+                    shared_page_numbers=[s.page_num for s in shared_sections if isinstance(s.page_num, int)],
+                ),
             })
         return corpora
 
@@ -340,6 +412,8 @@ def build_corpora(
         'summary': summary,
         'title_page': title_page,
         'source': 'single',
+        'assessment_category': '',
+        **_corpus_review_metadata(docs, summary, title_page),
     }]
 
 
@@ -382,4 +456,6 @@ def build_corpus_for_page_range(
         'summary': summary,
         'title_page': title_page,
         'source': 'single',
+        'assessment_category': '',
+        **_corpus_review_metadata(docs, summary, title_page),
     }

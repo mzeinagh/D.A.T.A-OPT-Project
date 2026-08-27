@@ -1,8 +1,19 @@
-"""Phase 3's Celery task: one task per Study/PipelineRun, covering corpus
-build, indexing, and the full 11-question graph run — never split any
-finer than that, since that would defeat the whole point of building the
-retrieval index once and reusing it for every question (the reason the
-original CLI pipeline was structured this way in the first place).
+"""Phase 3's Celery task: one task per Study/PipelineRun, covering
+indexing and the full 11-question graph run — never split any finer than
+that, since that would defeat the whole point of building the retrieval
+index once and reusing it for every question (the reason the original CLI
+pipeline was structured this way in the first place).
+
+Corpus *construction* is no longer this task's job (as of the corpus-
+detection/review update): every `Study` is now always materialized from an
+already-confirmed `DetectedCorpus` (see `studies/corpus_detection.py`),
+which cached the real `build_corpora()` result — including any OCR — at
+detection time. This task just rehydrates that cached content; it never
+calls `core_pipeline.document_processor` itself, never re-parses the PDF,
+and therefore never needs to guess at or reject a corpus shape it doesn't
+recognize (the `UnsupportedCorpusError` guard this task used to have is
+gone — corpus detection now pauses for review instead of this task
+refusing to run).
 """
 import functools
 
@@ -10,34 +21,13 @@ from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
 
-from core_pipeline.document_processor import build_corpora, build_corpus_for_page_range
 from core_pipeline.graph import graph
+from core_pipeline.schemas import Document
 from core_pipeline.search.vector_store import VectorStore
 from llm.factory import build_default_llm_client
 
 from .llm_integration import CostLimitedLLMClient, handle_llm_call
 from .models import Answer, PipelineRun, Study, StudyPage
-
-
-class UnsupportedCorpusError(RuntimeError):
-    """Raised when `build_corpora`/`build_corpus_for_page_range` returns
-    something this task doesn't yet know how to process safely:
-
-    - More than one corpus for a `Study` with no `page_range` set. A
-      `Study` models exactly one confirmed unit of work (decision 8); the
-      'integrated' multi-assessment-report auto-detection path in
-      `document_processor.py` can return multiple corpora even with
-      `split=False`, and silently picking `corpora[0]` would silently
-      drop the rest with no record of it.
-    - A corpus whose `source` is `'integrated'`. That path never calls
-      `_pages_to_documents`, so it has no OCR-provenance instrumentation
-      at all — processing it here would silently create zero `StudyPage`
-      rows rather than a faithful audit trail.
-
-    Both cases fail the run loudly with a clear `error_message` rather
-    than guessing. Resolving the 'integrated' report path's split/review
-    workflow is flagged as open follow-up work, not decided here.
-    """
 
 
 @shared_task(bind=True)
@@ -47,9 +37,9 @@ def run_pipeline_task(self, pipeline_run_id: int, llm_client_factory=build_defau
     which is why it's a keyword default rather than something read from
     settings inside the function body.
     """
-    run = PipelineRun.objects.select_related("study", "study__batch", "prompt_config_version").get(
-        pk=pipeline_run_id
-    )
+    run = PipelineRun.objects.select_related(
+        "study", "study__source_corpus", "prompt_config_version"
+    ).get(pk=pipeline_run_id)
     study = run.study
 
     run.status = PipelineRun.Status.RUNNING
@@ -74,62 +64,23 @@ def run_pipeline_task(self, pipeline_run_id: int, llm_client_factory=build_defau
 
 
 def _execute_run(run: PipelineRun, study: Study, llm_client_factory) -> None:
-    pdf_path = study.batch.uploaded_file.path
+    detected = study.source_corpus
+    if detected is None:
+        raise RuntimeError(
+            f"Study {study.id} has no source_corpus — every Study must be materialized from a "
+            "confirmed DetectedCorpus (see studies.corpus_detection.confirm_detected_corpora)."
+        )
 
-    study.status = Study.Status.BUILDING_CORPUS
+    study.status = Study.Status.INDEXING
     study.started_at = study.started_at or timezone.now()
     study.save(update_fields=["status", "started_at"])
 
-    def on_page(info: dict) -> None:
-        # update_or_create rather than create: safe if this task is ever
-        # retried after partially completing corpus build.
-        StudyPage.objects.update_or_create(
-            study=study,
-            page_number=info["page_num"],
-            defaults=dict(
-                extraction_method=info["extraction_method"],
-                raw_text=info["raw_text"],
-                cleaned_text=info["cleaned_text"],
-                final_text=info["final_text"],
-                is_table=info["is_table"],
-                is_toc=info["is_toc"],
-                ocr_attempted=info["ocr_attempted"],
-                ocr_succeeded=info["ocr_succeeded"],
-                ocr_error=info["ocr_error"] or "",
-                ocr_duration_ms=info["ocr_duration_ms"],
-            ),
-        )
-
-    if study.page_range:
-        corpus = build_corpus_for_page_range(
-            pdf_path,
-            page_range=study.page_range,
-            label=study.label,
-            on_page=on_page,
-            ocr_timeout_seconds=settings.OCR_TIMEOUT_SECONDS,
-        )
-    else:
-        corpora = build_corpora(
-            pdf_path, split=False, on_page=on_page, ocr_timeout_seconds=settings.OCR_TIMEOUT_SECONDS
-        )
-        if len(corpora) != 1:
-            raise UnsupportedCorpusError(
-                f"build_corpora returned {len(corpora)} corpora for a Study with no page_range set "
-                "(most likely an 'integrated' multi-assessment report) — this task only supports "
-                "exactly one corpus per Study. See the migration plan's blockers list."
-            )
-        corpus = corpora[0]
-        if corpus.get("source") != "single":
-            raise UnsupportedCorpusError(
-                f"corpus source={corpus.get('source')!r} has no OCR-provenance instrumentation; "
-                "refusing to silently produce zero StudyPage rows for it."
-            )
-
-    study.status = Study.Status.INDEXING
-    study.save(update_fields=["status"])
+    docs = [Document(content=d["content"], metadata=d["metadata"]) for d in detected.cached_docs]
+    summary = Document(**detected.cached_summary) if detected.cached_summary else None
+    title_page = Document(**detected.cached_title_page) if detected.cached_title_page else None
 
     store = VectorStore(model_dir=settings.EMBEDDING_MODEL_PATH)
-    store.add_documents(documents=corpus["docs"])
+    store.add_documents(documents=docs)
 
     study.status = Study.Status.RUNNING_QUESTIONS
     study.save(update_fields=["status"])
@@ -157,8 +108,8 @@ def _execute_run(run: PipelineRun, study: Study, llm_client_factory) -> None:
                 "chats_dir": "",
                 "messages": [],
                 "corpus_store": store,
-                "summary": corpus["summary"],
-                "title_page": corpus["title_page"],
+                "summary": summary,
+                "title_page": title_page,
                 "corrected_output": None,
                 "retrieved_pages": None,
                 "debugging": run.debugging,
