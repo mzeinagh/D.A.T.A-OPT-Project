@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Upload a study — D.A.T.A{% endblock %}
+{% block content %}
+    <h1>Upload a study</h1>
+    <p>Upload a toxicology study PDF. It will be processed automatically; if it looks
+       like it may contain more than one study or assessment, you'll be asked to
+       confirm before any GPT-5 processing begins.</p>
+
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+
+        <div class="field">
+            <label for="{{ form.uploaded_file.id_for_label }}">{{ form.uploaded_file.label }}</label>
+            {{ form.uploaded_file }}
+            {% if form.uploaded_file.errors %}
+                <ul class="errorlist">{% for e in form.uploaded_file.errors %}<li>{{ e }}</li>{% endfor %}</ul>
+            {% endif %}
+        </div>
+
+        <div class="field">
+            <label>
+                {{ form.split_requested }}
+                {{ form.split_requested.label }}
+            </label>
+            <div class="help">{{ form.split_requested.help_text }}</div>
+        </div>
+
+        <button type="submit">Upload</button>
+    </form>
+{% endblock %}

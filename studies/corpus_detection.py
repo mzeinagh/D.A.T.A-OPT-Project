@@ -9,6 +9,13 @@ either confirmed into its own `Study` or explicitly excluded by a person.
 
 Only this module and `studies/tasks.py` talk to `core_pipeline`/`llm` — the
 dependency direction stays one-way, same as `services.py`.
+
+Status: this module (detection, caching, confirm/exclude, the single-
+corpus fallback) is complete and tested. There is no dedicated, non-admin
+web page for a regular user to drive this yet — Django admin
+(`DetectedCorpusAdmin`) is the only working review/confirm surface today.
+That page is required v1 scope for Phase 5, not optional. See
+`docs/PHASE_STATUS.md` for the up-to-date picture.
 """
 import pymupdf
 from django.conf import settings as django_settings

@@ -5,6 +5,12 @@ set of extraction questions (exposure route, purity, dosage, hazard
 classification, etc.) using a local LLM, a hybrid (semantic + BM25)
 retrieval index, and LangGraph for orchestration.
 
+> **This README describes the original CLI pipeline below, which remains
+> untouched and fully runnable.** A Django/GPT-5 conversion of this same
+> pipeline is in progress on the `django-app` branch — see
+> [`docs/PHASE_STATUS.md`](docs/PHASE_STATUS.md) for what's implemented
+> and what isn't yet.
+
 ---
 
 ## 1. Prerequisites

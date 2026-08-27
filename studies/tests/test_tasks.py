@@ -245,3 +245,37 @@ class TestFailureHandling:
         assert run.status == PipelineRun.Status.FAILED
         assert "source_corpus" in run.error_message
         assert study.status == Study.Status.FAILED
+
+
+class TestDetectCorpusTask:
+    """detect_corpus_task itself is a thin Celery wrapper around
+    corpus_detection.run_corpus_detection — this just confirms the wiring
+    (loads the right batch, delegates correctly); run_corpus_detection's
+    own behavior is covered exhaustively in test_corpus_detection.py."""
+
+    def test_delegates_to_run_corpus_detection(self, user, batch, two_questions):
+        from studies.tasks import detect_corpus_task
+
+        with patch("studies.corpus_detection.build_corpora") as mock_build, patch(
+            "studies.tasks.run_pipeline_task.delay"
+        ):
+            from core_pipeline.schemas import Document
+
+            mock_build.return_value = [
+                {
+                    "label": None,
+                    "docs": [Document(content="p1", metadata={"page_num": 1})],
+                    "summary": None,
+                    "title_page": None,
+                    "source": "single",
+                    "assessment_category": "",
+                    "page_numbers": [1],
+                    "shared_page_numbers": [],
+                    "detection_warnings": [],
+                }
+            ]
+            detect_corpus_task(batch.id)
+
+        batch.refresh_from_db()
+        assert batch.split_status == UploadBatch.SplitStatus.CONFIRMED
+        assert Study.objects.filter(batch=batch).count() == 1

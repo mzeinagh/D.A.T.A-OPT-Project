@@ -27,7 +27,7 @@ from core_pipeline.search.vector_store import VectorStore
 from llm.factory import build_default_llm_client
 
 from .llm_integration import CostLimitedLLMClient, handle_llm_call
-from .models import Answer, PipelineRun, Study, StudyPage
+from .models import Answer, PipelineRun, Study, StudyPage, UploadBatch
 
 
 @shared_task(bind=True)
@@ -160,3 +160,22 @@ def _build_page_refs(retrieved_pages: dict | None, page_lookup: dict[int, int]) 
             ref["study_page_id"] = page_lookup[page_num]
         refs.append(ref)
     return refs
+
+
+@shared_task(bind=True)
+def detect_corpus_task(self, upload_batch_id: int) -> None:
+    """Runs corpus detection/construction for a freshly uploaded PDF in
+    the background — this is Phase 4's task, not Phase 3's: detection can
+    do real OCR work (see `document_processor.py`), so it must not block
+    the upload request/response cycle any more than GPT-5 processing does.
+
+    Deliberately thin: all the actual logic (including the single-corpus
+    auto-confirm case, which itself enqueues `run_pipeline_task`) lives in
+    `studies.corpus_detection.run_corpus_detection` — this task exists only
+    so that function has a Celery entry point, same relationship
+    `run_pipeline_task` has to `_execute_run`.
+    """
+    from .corpus_detection import run_corpus_detection
+
+    batch = UploadBatch.objects.select_related("uploaded_by").get(pk=upload_batch_id)
+    run_corpus_detection(batch)

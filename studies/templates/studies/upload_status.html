@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}{{ batch.original_filename }} — D.A.T.A{% endblock %}
+{% block content %}
+    <h1>{{ batch.original_filename }}</h1>
+    <p>Uploaded {{ batch.uploaded_at }} by {{ batch.uploaded_by }} &middot;
+       status: <span class="status-pill">{{ batch.get_split_status_display }}</span></p>
+
+    {% if batch.split_status == "failed" %}
+        <div class="notice">
+            <strong>Detection failed.</strong>
+            <p>{{ batch.split_error_message }}</p>
+            <p>Your original PDF is untouched. Ask an administrator to retry detection or
+               process it as a single study.</p>
+        </div>
+    {% endif %}
+
+    {% if awaiting_review %}
+        <div class="notice">
+            <strong>This upload needs review before processing can continue.</strong>
+            {% if detected_corpora.count > 1 %}
+                <p>{{ detected_corpora.count }} possible studies/assessments were detected in this
+                   document. Someone needs to confirm which ones to process before any GPT-5
+                   questions are asked.</p>
+            {% else %}
+                <p>You asked to review this document before processing. Confirm below to continue.</p>
+            {% endif %}
+            {% if user.is_staff %}
+                <p>A dedicated review page isn't available yet — for now, review and confirm
+                   this in <a href="{% url 'admin:studies_detectedcorpus_changelist' %}">Django admin</a>.</p>
+            {% else %}
+                <p>A reviewer will need to complete this step for you — this isn't available in
+                   this interface yet.</p>
+            {% endif %}
+        </div>
+
+        <table>
+            <thead>
+                <tr><th>#</th><th>Proposed title</th><th>Type</th><th>Category</th><th>Pages</th><th>Warnings</th></tr>
+            </thead>
+            <tbody>
+                {% for corpus in detected_corpora %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td>{{ corpus.title }}</td>
+                        <td>{{ corpus.get_detection_type_display }}</td>
+                        <td>{{ corpus.assessment_category|default:"—" }}</td>
+                        <td>{{ corpus.page_numbers|length }}</td>
+                        <td>{{ corpus.detection_warnings|length }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+
+    {% if studies %}
+        <h2>Studies</h2>
+        <table>
+            <thead>
+                <tr><th>Label</th><th>Category</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+                {% for study in studies %}
+                    <tr>
+                        <td>{{ study.label|default:"(whole document)" }}</td>
+                        <td>{{ study.assessment_category|default:"—" }}</td>
+                        <td><span class="status-pill">{{ study.get_status_display }}</span></td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+
+    <p><a href="{% url 'studies:upload' %}">Upload another study</a></p>
+{% endblock %}
