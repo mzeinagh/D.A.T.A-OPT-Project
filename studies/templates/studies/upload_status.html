@@ -9,8 +9,42 @@
         <div class="notice">
             <strong>Detection failed.</strong>
             <p>{{ batch.split_error_message }}</p>
-            <p>Your original PDF is untouched. You can retry, or process it as a single study,
-               from the <a href="{% url 'studies:review' batch.id %}">review page</a>.</p>
+            <p>Your original PDF is untouched (retry {{ batch.retry_count }} of {{ max_retries }} used).</p>
+
+            {% if batch.detection_failure_history %}
+                <details>
+                    <summary>Failure history ({{ batch.detection_failure_history|length }})</summary>
+                    <table>
+                        <thead>
+                            <tr><th>Attempt</th><th>When</th><th>Error</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for entry in batch.detection_failure_history %}
+                                <tr>
+                                    <td>{{ entry.retry_number }}</td>
+                                    <td>{{ entry.occurred_at }}</td>
+                                    <td>{{ entry.error_message }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </details>
+            {% endif %}
+
+            {% if retry_limit_reached %}
+                <p><strong>Maximum retries reached ({{ max_retries }}).</strong> Retrying again isn't
+                   available for this upload — process the original PDF as a single study instead.</p>
+            {% else %}
+                <form method="post" action="{% url 'studies:retry_detection' batch.id %}" style="display:inline">
+                    {% csrf_token %}
+                    <button type="submit">Retry corpus detection</button>
+                </form>
+            {% endif %}
+
+            <form method="post" action="{% url 'studies:process_as_single' batch.id %}" style="display:inline">
+                {% csrf_token %}
+                <button type="submit">Process original PDF as one corpus</button>
+            </form>
         </div>
     {% endif %}
 

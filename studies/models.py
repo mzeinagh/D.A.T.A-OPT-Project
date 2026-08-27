@@ -62,9 +62,23 @@ class UploadBatch(models.Model):
         default=False, help_text="The 'Split this PDF into multiple studies' checkbox value at upload time."
     )
     split_status = models.CharField(max_length=32, choices=SplitStatus.choices, default=SplitStatus.NOT_APPLICABLE)
+    # The *active* error — cleared the moment a retry begins, so the status
+    # page reflects "retrying now" rather than a stale failure. The full
+    # record survives regardless, in detection_failure_history below.
     split_error_message = models.TextField(blank=True, default="")
     split_params_snapshot = models.JSONField(
         default=dict, blank=True, help_text="e.g. {'minimum_page_for_split': 80, 'target_study_words': [...]}"
+    )
+
+    retry_count = models.PositiveIntegerField(
+        default=0, help_text="Number of times corpus detection has been retried after a failure."
+    )
+    detection_failure_history = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="[{'retry_number', 'error_message', 'occurred_at'}, ...] — a permanent record of "
+        "every detection failure, written whenever split_status becomes FAILED. Never cleared, "
+        "even though split_error_message (the *active* error) is cleared when a retry begins.",
     )
 
     confirmed_by = models.ForeignKey(

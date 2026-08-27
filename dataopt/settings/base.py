@@ -149,6 +149,12 @@ HANDBOOK_PDF_PATH = env("HANDBOOK_PDF_PATH", str(BASE_DIR / "dependants" / "Stru
 # setting names are fixed and documented from the start.
 OCR_TIMEOUT_SECONDS = env_float("OCR_TIMEOUT_SECONDS", 60.0)
 
+# ---------------------------------------------------------------- Corpus detection retry
+# Phase 6: how many times a failed corpus detection may be retried before
+# the review page stops offering the "Retry" button and only "Process
+# original PDF as one corpus" remains.
+CORPUS_DETECTION_MAX_RETRIES = env_int("CORPUS_DETECTION_MAX_RETRIES", 3)
+
 # ---------------------------------------------------------------- OpenAI / GPT-5
 # All three LLM call sites (retrieve_guide, generate, formatter) go through
 # llm.openai_client.OpenAIResponsesClient, configured only from here — no

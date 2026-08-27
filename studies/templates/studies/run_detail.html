@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Run {{ run.run_number }} — {{ study.label|default:"Study" }}{% endblock %}
+{% block content %}
+    <p><a href="{% url 'studies:study_detail' study.id %}">&larr; {{ study.label|default:"(whole document)" }}</a></p>
+    <h1>Run {{ run.run_number }}</h1>
+    <p>
+        Status: <span class="status-pill">{{ run.get_status_display }}</span> &middot;
+        Model: {{ run.llm_model|default:"—" }} &middot;
+        Calls: {{ run.total_api_calls }} &middot;
+        Tokens: {{ run.total_input_tokens }} in / {{ run.total_output_tokens }} out &middot;
+        Est. cost: {{ run.estimated_cost_usd|default:"—" }} USD
+    </p>
+    {% if run.halted_due_to_cost_limit %}
+        <div class="notice">This run halted early — it reached its configured cost limit
+            ({{ run.cost_limit_usd }} USD).</div>
+    {% endif %}
+    {% if run.error_message %}
+        <div class="notice"><strong>Error:</strong> {{ run.error_message }}</div>
+    {% endif %}
+
+    <p>
+        <a href="{% url 'studies:export_run_full' study.id run.id %}">Download full conversation (.txt)</a>
+        &middot;
+        <a href="{% url 'studies:export_run_answers' study.id run.id %}">Download answers only (.txt)</a>
+    </p>
+
+    {% if failed_calls %}
+        <h2>Failed / timed-out calls</h2>
+        <table>
+            <thead><tr><th>Node</th><th>Status</th><th>Error</th><th>Retries</th></tr></thead>
+            <tbody>
+                {% for call in failed_calls %}
+                    <tr>
+                        <td>{{ call.get_node_name_display }}</td>
+                        <td>{{ call.get_status_display }}</td>
+                        <td>{{ call.error_message }}</td>
+                        <td>{{ call.retry_count }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+
+    <h2>Answers</h2>
+    {% if not answers %}
+        <p>No answers recorded for this run yet.</p>
+    {% else %}
+        {% for answer in answers %}
+            <div class="notice" style="background:#fafafa;">
+                <p><strong>Q{{ forloop.counter }}.</strong> {{ answer.question_snapshot.text }}</p>
+                <p>{{ answer.formatted_answer|linebreaksbr }}</p>
+                {% if answer.keywords_used %}
+                    <p class="help">Keywords: {{ answer.keywords_used|join:", " }}</p>
+                {% endif %}
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endblock %}

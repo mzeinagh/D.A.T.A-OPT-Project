@@ -23,7 +23,12 @@
 </head>
 <body>
     <header>
-        <a href="{% url 'studies:upload' %}">D.A.T.A</a>
+        <span>
+            <a href="{% url 'studies:study_list' %}">D.A.T.A</a>
+            {% if user.is_authenticated %}
+                &middot; <a href="{% url 'studies:upload' %}">Upload</a>
+            {% endif %}
+        </span>
         {% if user.is_authenticated %}
             <span>{{ user.username }} — <a href="{% url 'logout' %}">Log out</a></span>
         {% else %}

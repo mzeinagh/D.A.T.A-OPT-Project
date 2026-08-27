@@ -264,23 +264,71 @@ class TestConfirmAction:
 
 class TestProcessAsSingleAction:
     def test_creates_one_study_for_whole_document(self, client, alice, awaiting_batch, one_question):
+        """Phase 6: `process_as_single` now only *claims* synchronously
+        inside the request (status -> DETECTING) and hands the slow body
+        off to `process_as_single_corpus_task` — no more blocking the
+        request on PDF parsing/OCR. We patch that task's `.delay` to run
+        the task function directly (the same "call it, don't `.delay()`
+        it" pattern `test_tasks.py` uses) to simulate a worker picking it
+        up immediately, so the rest of this test can still assert on the
+        end state.
+        """
         batch, tox, residue = awaiting_batch
         client.login(username="alice", password="pw12345")
 
-        with patch("studies.tasks.run_pipeline_task.delay") as mock_delay:
+        from studies.tasks import process_as_single_corpus_task
+
+        with patch("studies.tasks.run_pipeline_task.delay") as mock_run_delay, patch(
+            "studies.tasks.process_as_single_corpus_task.delay",
+            side_effect=lambda batch_id, started_by_id: process_as_single_corpus_task(batch_id, started_by_id),
+        ) as mock_process_delay:
             resp = client.post(
                 reverse("studies:review", kwargs={"batch_id": batch.id}),
                 data={"action": "process_as_single"},
             )
 
         assert resp.status_code == 302
+        mock_process_delay.assert_called_once()
+
         batch.refresh_from_db()
         assert batch.split_status == UploadBatch.SplitStatus.CONFIRMED
 
         studies = Study.objects.filter(batch=batch)
         assert studies.count() == 1
         assert studies.first().page_range == [1, 2]  # whole 2-page document
+        mock_run_delay.assert_called_once()
+
+    def test_double_submit_only_claims_once(self, client, alice, awaiting_batch):
+        """The claim (`process_as_single_corpus_claim`'s row lock) is what
+        actually prevents two near-simultaneous requests both succeeding —
+        not just the button being disabled client-side. Here we don't even
+        need the task to run: a second claim attempt while the first is
+        still `DETECTING` must fail cleanly.
+        """
+        batch, tox, residue = awaiting_batch
+        client.login(username="alice", password="pw12345")
+
+        with patch("studies.tasks.process_as_single_corpus_task.delay") as mock_delay:
+            resp1 = client.post(
+                reverse("studies:review", kwargs={"batch_id": batch.id}),
+                data={"action": "process_as_single"},
+            )
+        assert resp1.status_code == 302
         mock_delay.assert_called_once()
+
+        batch.refresh_from_db()
+        assert batch.split_status == UploadBatch.SplitStatus.DETECTING
+
+        # A second attempt (e.g. a replayed submit) now sees DETECTING —
+        # review_view itself redirects before even reaching the action
+        # dispatch, since the batch is no longer AWAITING_CONFIRMATION.
+        with patch("studies.tasks.process_as_single_corpus_task.delay") as mock_delay2:
+            resp2 = client.post(
+                reverse("studies:review", kwargs={"batch_id": batch.id}),
+                data={"action": "process_as_single"},
+            )
+        assert resp2.status_code == 302
+        mock_delay2.assert_not_called()
 
 
 class TestCancelAction:

@@ -174,8 +174,57 @@ def detect_corpus_task(self, upload_batch_id: int) -> None:
     `studies.corpus_detection.run_corpus_detection` — this task exists only
     so that function has a Celery entry point, same relationship
     `run_pipeline_task` has to `_execute_run`.
+
+    A fresh upload has no pre-existing row to race against (each upload
+    creates a brand new `UploadBatch`), so this task does both halves of
+    the claim/body split itself (`run_corpus_detection` == claim + body) —
+    unlike `retry_corpus_detection_task`/`process_as_single_corpus_task`
+    below, whose claim already happened synchronously in the view.
     """
     from .corpus_detection import run_corpus_detection
 
     batch = UploadBatch.objects.select_related("uploaded_by").get(pk=upload_batch_id)
     run_corpus_detection(batch)
+
+
+def _resolve_started_by(batch: UploadBatch, started_by_id: int | None):
+    """The acting user for a Phase 6 retry/fallback task — explicitly
+    passed from the view (`request.user`), never defaulted to
+    `batch.uploaded_by`, because staff can act on someone else's upload
+    and the *acting* user is what audit fields like `confirmed_by` should
+    record.
+    """
+    if started_by_id is None:
+        return batch.uploaded_by
+    from django.contrib.auth import get_user_model
+
+    return get_user_model().objects.get(pk=started_by_id)
+
+
+@shared_task(bind=True)
+def retry_corpus_detection_task(self, upload_batch_id: int, started_by_id: int | None = None) -> None:
+    """Body-only counterpart to a retry already claimed synchronously in
+    `views.retry_detection_view` (via
+    `corpus_detection.retry_corpus_detection_claim`) — the real duplicate-
+    prevention for "don't submit this task twice" happens there, before
+    this task is even enqueued (see the module docstring's "Claim/body
+    split" note in `corpus_detection.py`). This task just runs the slow
+    part (`_run_detection_body`) against the already-claimed batch.
+    """
+    from .corpus_detection import _run_detection_body
+
+    batch = UploadBatch.objects.select_related("uploaded_by").get(pk=upload_batch_id)
+    _run_detection_body(batch, started_by=_resolve_started_by(batch, started_by_id))
+
+
+@shared_task(bind=True)
+def process_as_single_corpus_task(self, upload_batch_id: int, started_by_id: int | None = None) -> None:
+    """Body-only counterpart to a claim already done synchronously in
+    the view (`corpus_detection.process_as_single_corpus_claim`) before
+    this task is enqueued — same split as `retry_corpus_detection_task`
+    above.
+    """
+    from .corpus_detection import _process_as_single_corpus_body
+
+    batch = UploadBatch.objects.select_related("uploaded_by").get(pk=upload_batch_id)
+    _process_as_single_corpus_body(batch, started_by=_resolve_started_by(batch, started_by_id))
