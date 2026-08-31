@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}D.A.T.A{% endblock %}</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ddd; padding-bottom: 1rem; margin-bottom: 2rem; }
+        header a { text-decoration: none; color: inherit; font-weight: 600; }
+        .field { margin-bottom: 1rem; }
+        .field label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
+        .field .help { color: #666; font-size: 0.85rem; margin-top: 0.25rem; }
+        .errorlist { color: #b00020; list-style: none; padding: 0; margin: 0.25rem 0; font-size: 0.85rem; }
+        button, input[type=submit] { padding: 0.5rem 1rem; font-size: 1rem; cursor: pointer; }
+        table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+        th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #eee; }
+        .status-pill { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.8rem; background: #eee; }
+        .notice { background: #fff8e1; border: 1px solid #f0d270; border-radius: 4px; padding: 0.75rem 1rem; margin: 1rem 0; }
+        .messages { list-style: none; padding: 0; }
+        .messages li { background: #eef; border-radius: 4px; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; }
+    </style>
+</head>
+<body>
+    <header>
+        <span>
+            <a href="{% url 'studies:study_list' %}">D.A.T.A</a>
+            {% if user.is_authenticated %}
+                &middot; <a href="{% url 'studies:upload' %}">Upload</a>
+            {% endif %}
+        </span>
+        {% if user.is_authenticated %}
+            <span>{{ user.username }} — <a href="{% url 'logout' %}">Log out</a></span>
+        {% else %}
+            <a href="{% url 'login' %}">Log in</a>
+        {% endif %}
+    </header>
+
+    {% if messages %}
+        <ul class="messages">
+            {% for message in messages %}<li>{{ message }}</li>{% endfor %}
+        </ul>
+    {% endif %}
+
+    {% block content %}{% endblock %}
+</body>
+</html>

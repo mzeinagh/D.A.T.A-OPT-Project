@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ study.label|default:"Study" }} — D.A.T.A{% endblock %}
+{% block content %}
+    <p><a href="{% url 'studies:study_list' %}">&larr; All studies</a></p>
+    <h1>{{ study.label|default:"(whole document)" }}</h1>
+    <p>
+        Category: {{ study.assessment_category|default:"—" }} &middot;
+        Status: <span class="status-pill">{{ study.get_status_display }}</span> &middot;
+        Detection: {{ study.detection_type|default:"—" }}
+    </p>
+    <p>
+        From upload
+        <a href="{% url 'studies:upload_status' study.batch_id %}">{{ study.batch.original_filename }}</a>
+        &middot; page range: {{ study.page_range|default:"whole document" }}
+    </p>
+    {% if study.error_message %}
+        <div class="notice"><strong>Error:</strong> {{ study.error_message }}</div>
+    {% endif %}
+
+    <h2>Runs</h2>
+    {% if not runs %}
+        <p>No runs yet.</p>
+    {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Run</th><th>Status</th><th>Started</th><th>Finished</th>
+                    <th>Calls</th><th>Tokens (in/out)</th><th>Est. cost (USD)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in runs %}
+                    <tr>
+                        <td><a href="{% url 'studies:run_detail' study.id run.id %}">{{ run.run_number }}</a></td>
+                        <td><span class="status-pill">{{ run.get_status_display }}</span></td>
+                        <td>{{ run.started_at }}</td>
+                        <td>{{ run.finished_at|default:"—" }}</td>
+                        <td>{{ run.total_api_calls }}</td>
+                        <td>{{ run.total_input_tokens }} / {{ run.total_output_tokens }}</td>
+                        <td>{{ run.estimated_cost_usd|default:"—" }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+{% endblock %}

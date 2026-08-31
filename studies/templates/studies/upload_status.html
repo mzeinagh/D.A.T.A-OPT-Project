@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}{{ batch.original_filename }} — D.A.T.A{% endblock %}
+{% block content %}
+    <h1>{{ batch.original_filename }}</h1>
+    <p>Uploaded {{ batch.uploaded_at }} by {{ batch.uploaded_by }} &middot;
+       status: <span class="status-pill">{{ batch.get_split_status_display }}</span></p>
+
+    {% if batch.split_status == "failed" %}
+        <div class="notice">
+            <strong>Detection failed.</strong>
+            <p>{{ batch.split_error_message }}</p>
+            <p>Your original PDF is untouched (retry {{ batch.retry_count }} of {{ max_retries }} used).</p>
+
+            {% if batch.detection_failure_history %}
+                <details>
+                    <summary>Failure history ({{ batch.detection_failure_history|length }})</summary>
+                    <table>
+                        <thead>
+                            <tr><th>Attempt</th><th>When</th><th>Error</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for entry in batch.detection_failure_history %}
+                                <tr>
+                                    <td>{{ entry.retry_number }}</td>
+                                    <td>{{ entry.occurred_at }}</td>
+                                    <td>{{ entry.error_message }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </details>
+            {% endif %}
+
+            {% if retry_limit_reached %}
+                <p><strong>Maximum retries reached ({{ max_retries }}).</strong> Retrying again isn't
+                   available for this upload — process the original PDF as a single study instead.</p>
+            {% else %}
+                <form method="post" action="{% url 'studies:retry_detection' batch.id %}" style="display:inline">
+                    {% csrf_token %}
+                    <button type="submit">Retry corpus detection</button>
+                </form>
+            {% endif %}
+
+            <form method="post" action="{% url 'studies:process_as_single' batch.id %}" style="display:inline">
+                {% csrf_token %}
+                <button type="submit">Process original PDF as one corpus</button>
+            </form>
+        </div>
+    {% endif %}
+
+    {% if batch.split_status == "cancelled" %}
+        <div class="notice">
+            <strong>Review was cancelled.</strong>
+            <p>No studies were created for this upload. Your original PDF is untouched.</p>
+        </div>
+    {% endif %}
+
+    {% if awaiting_review %}
+        <div class="notice">
+            <strong>This upload needs review before processing can continue.</strong>
+            {% if detected_corpora.count > 1 %}
+                <p>{{ detected_corpora.count }} possible studies/assessments were detected in this
+                   document. Confirm which ones to process before any GPT-5 questions are asked.</p>
+            {% else %}
+                <p>You asked to review this document before processing. Confirm below to continue.</p>
+            {% endif %}
+            <p><a href="{% url 'studies:review' batch.id %}"><strong>Review and confirm &rarr;</strong></a></p>
+        </div>
+
+        <table>
+            <thead>
+                <tr><th>#</th><th>Proposed title</th><th>Type</th><th>Category</th><th>Pages</th><th>Warnings</th></tr>
+            </thead>
+            <tbody>
+                {% for corpus in detected_corpora %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td>{{ corpus.title }}</td>
+                        <td>{{ corpus.get_detection_type_display }}</td>
+                        <td>{{ corpus.assessment_category|default:"—" }}</td>
+                        <td>{{ corpus.page_range_display|default:"—" }}</td>
+                        <td>{{ corpus.detection_warnings|length }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+
+    {% if studies %}
+        <h2>Studies and runs</h2>
+        <table>
+            <thead>
+                <tr><th>Study</th><th>Category</th><th>Study status</th><th>Runs</th></tr>
+            </thead>
+            <tbody>
+                {% for study in studies %}
+                    <tr>
+                        <td>{{ study.label|default:"(whole document)" }}</td>
+                        <td>{{ study.assessment_category|default:"—" }}</td>
+                        <td><span class="status-pill">{{ study.get_status_display }}</span></td>
+                        <td>
+                            {% for run in study.runs.all %}
+                                Run {{ run.run_number }}:
+                                <span class="status-pill">{{ run.get_status_display }}</span>
+                                {% if run.total_api_calls %}({{ run.total_api_calls }} calls){% endif %}
+                                <br>
+                            {% empty %}
+                                —
+                            {% endfor %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+
+    <p><a href="{% url 'studies:upload' %}">Upload another study</a></p>
+{% endblock %}
