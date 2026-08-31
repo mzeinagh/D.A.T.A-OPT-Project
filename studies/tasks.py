@@ -16,6 +16,7 @@ gone — corpus detection now pauses for review instead of this task
 refusing to run).
 """
 import functools
+import logging
 
 from celery import shared_task
 from django.conf import settings
@@ -28,6 +29,8 @@ from llm.factory import build_default_llm_client
 
 from .llm_integration import CostLimitedLLMClient, handle_llm_call
 from .models import Answer, PipelineRun, Study, StudyPage, UploadBatch
+
+logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True)
@@ -44,6 +47,7 @@ def run_pipeline_task(self, pipeline_run_id: int, llm_client_factory=build_defau
 
     run.status = PipelineRun.Status.RUNNING
     run.save(update_fields=["status"])
+    logger.info("Run %s (study %s): started.", run.id, study.id)
 
     try:
         _execute_run(run, study, llm_client_factory)
@@ -60,6 +64,7 @@ def run_pipeline_task(self, pipeline_run_id: int, llm_client_factory=build_defau
         study.error_message = error_message
         study.finished_at = now
         study.save(update_fields=["status", "error_message", "finished_at"])
+        logger.warning("Run %s (study %s): failed — %s", run.id, study.id, error_message)
         raise
 
 
@@ -143,6 +148,17 @@ def _execute_run(run: PipelineRun, study: Study, llm_client_factory) -> None:
     study.finished_at = timezone.now()
     study.save(update_fields=["status", "finished_at"])
 
+    if run.halted_due_to_cost_limit:
+        logger.warning(
+            "Run %s (study %s): halted at cost limit ($%.4f / $%.4f) after %d question(s).",
+            run.id, study.id, run.estimated_cost_usd or 0.0, run.cost_limit_usd or 0.0, run.answers.count(),
+        )
+    else:
+        logger.info(
+            "Run %s (study %s): completed — %d call(s), $%.4f estimated.",
+            run.id, study.id, run.total_api_calls, run.estimated_cost_usd or 0.0,
+        )
+
 
 def _build_page_refs(retrieved_pages: dict | None, page_lookup: dict[int, int]) -> list[dict]:
     """Turns `GraphState['retrieved_pages']` (`{"length", "page numbers"}`)
@@ -184,6 +200,7 @@ def detect_corpus_task(self, upload_batch_id: int) -> None:
     from .corpus_detection import run_corpus_detection
 
     batch = UploadBatch.objects.select_related("uploaded_by").get(pk=upload_batch_id)
+    logger.info("Batch %s: detect_corpus_task started.", batch.id)
     run_corpus_detection(batch)
 
 
@@ -214,6 +231,7 @@ def retry_corpus_detection_task(self, upload_batch_id: int, started_by_id: int |
     from .corpus_detection import _run_detection_body
 
     batch = UploadBatch.objects.select_related("uploaded_by").get(pk=upload_batch_id)
+    logger.info("Batch %s: retry_corpus_detection_task started (attempt %d).", batch.id, batch.retry_count)
     _run_detection_body(batch, started_by=_resolve_started_by(batch, started_by_id))
 
 
@@ -227,4 +245,5 @@ def process_as_single_corpus_task(self, upload_batch_id: int, started_by_id: int
     from .corpus_detection import _process_as_single_corpus_body
 
     batch = UploadBatch.objects.select_related("uploaded_by").get(pk=upload_batch_id)
+    logger.info("Batch %s: process_as_single_corpus_task started.", batch.id)
     _process_as_single_corpus_body(batch, started_by=_resolve_started_by(batch, started_by_id))

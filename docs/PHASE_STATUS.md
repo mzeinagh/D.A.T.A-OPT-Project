@@ -52,19 +52,32 @@ What exists today:
   way to act on a pending review — see the note in Phase 4's entry below,
   now resolved.
 
-What does **not** exist yet (unrelated to the corpus-review gap above,
-just not yet built):
-- A general study list/detail view, answer views, or export views —
-  `studies:upload_status` is the only per-batch overview page so far.
-- Any admin-triggered retry/fallback action surfaced in the *regular*
-  UI for a batch already marked `FAILED` before Phase 5 landed — the
-  review page's fallback actions only appear while a batch is
-  `AWAITING_CONFIRMATION`. A `FAILED` batch's status page links to the
-  review page, but `review_view` itself only renders the form for a
-  batch actually awaiting confirmation; a failed batch needs a fresh
-  detection attempt (currently only triggerable via `manage.py shell`/
-  Django admin, not a button in the regular UI). Worth a small follow-up
-  if failed detections turn out to be common in practice.
+As of Phase 6, the previously-open items above are closed:
+- **Failed-detection retry** now has a regular-UI button. A `FAILED`
+  `UploadBatch` shows its active error, its full failure history, and a
+  "Retry corpus detection" button (owner/staff only) that re-attempts
+  detection from scratch, up to `settings.CORPUS_DETECTION_MAX_RETRIES`
+  (default 3, env-configurable). Once the limit is reached, retry is
+  replaced by a clear "maximum retries reached" message; "Process
+  original PDF as one corpus" stays available as the alternative
+  regardless of retry count. Duplicate retry submissions are prevented
+  the same way confirm/cancel always have been: a synchronous, row-locked
+  claim (`corpus_detection.retry_corpus_detection_claim`) happens before
+  any Celery task is even enqueued, so a double-click's second request
+  fails cleanly rather than starting a second detection attempt.
+  `review_view`'s own "process as single" action was also changed to use
+  this claim-then-task pattern instead of blocking the request on PDF
+  parsing/OCR. Fully covered by tests (`studies/tests/test_retry_flow.py`).
+- **General study list/detail, answer, and export views** now exist:
+  `studies:study_list` (every study the user can see), `studies:
+  study_detail` (one study's runs), `studies:run_detail` (one run's full
+  answer transcript, retrieval/call-log detail included), and two
+  on-demand export endpoints (`export_run_full` — the complete transcript
+  per question; `export_run_answers` — just the formatted answers) that
+  stream a `.txt` download rather than writing anything to disk, per
+  decision 6 (no permanent transcript files). Ownership enforced the same
+  way as every other view. Covered by tests
+  (`studies/tests/test_study_views.py`).
 
 ## Phase plan (current)
 
@@ -77,11 +90,18 @@ just not yet built):
 | 3.5 | Corpus detection/review generalized (long-report + integrated-report), data/service/admin layer | Done |
 | 4 | Upload flow: authenticated upload form + status view | Done |
 | 5 | Web UI — dedicated corpus-review page (required v1 feature), status page enhanced to show runs | Done |
-| 6 | Access & observability hardening, general study list/detail + answer/export views, then the legacy-script cutover | Not started |
+| 6 | Failed-detection retry flow, general study/run browsing + export views, observability logging, legacy-cutover documentation | Done |
 | 7 | Prompt optimization (deliberately last, after output-parity testing) | Not started |
 
-Phase 5 delivered specifically the corpus-review page and the retry/
-fallback/cancel actions around it. A broader study list/detail and
-answer/export browsing experience is still open — folded into Phase 6
-rather than tracked as a separate phase, since it's naturally paired with
-the access-control hardening pass.
+Phase 6 closed both items Phase 5 had left open (see above) and added:
+structured logging (Python's `logging`, not `core_pipeline`'s pre-existing
+`print()` debug statements, which are untouched legacy/ported code) across
+`studies/tasks.py`, `studies/llm_integration.py`, and `studies/services.py`
+— task start/completion/failure, cost-limit halts, and failed LLM calls
+are now all visible in the log stream, not just the database. See
+`docs/LEGACY_CUTOVER.md` for the legacy CLI pipeline's status: it is
+orphaned (nothing in the Django app imports it) but has **not** been
+deleted, since no parity testing between it and the Django/GPT-5 pipeline
+has been possible in this environment (`api.openai.com`/`huggingface.co`
+are both blocked by the sandbox's egress proxy) — that document lists
+what a parity pass would need before deletion is safe to decide on.

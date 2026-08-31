@@ -15,11 +15,15 @@ confirm view (Phase 4) will call to create the pending `PipelineRun` that
 that view, because the Celery task needs a real row to run against to be
 testable at all — see `studies/tasks.py` and its tests.
 """
+import logging
+
 from django.conf import settings as django_settings
 from django.db import transaction
 from django.db.models import Max
 
 from .models import PipelineRun, PromptConfig, PromptConfigVersion, Question, QuestionSnapshot, Study
+
+logger = logging.getLogger(__name__)
 
 
 class NoActivePromptConfigError(RuntimeError):
@@ -78,6 +82,10 @@ def get_or_create_current_prompt_config_version() -> PromptConfigVersion:
                 for q in active_questions
             ]
         )
+    logger.info(
+        "Created PromptConfigVersion v%d from '%s' (%d active question(s)).",
+        version.version_number, active_config.name, len(active_questions),
+    )
     return version
 
 
@@ -156,4 +164,5 @@ def start_pipeline_run(
             cost_limit_usd=cost_limit_usd,
         )
 
+    logger.info("Study %s: created PipelineRun %s (run_number=%d) started by %s.", study.id, run.id, run.run_number, started_by)
     return run

@@ -5,11 +5,15 @@ totals, and enforcing an optional per-run cost limit.
 Nothing in `llm/` or `core_pipeline` imports this module — it's called
 only from `studies/tasks.py`, keeping the dependency direction one-way.
 """
+import logging
+
 from django.utils import timezone
 
 from llm.base import LLMClient, LLMResult
 
 from .models import LLMCallLog, PipelineRun
+
+logger = logging.getLogger(__name__)
 
 
 def handle_llm_call(run: PipelineRun, node_name: str | None, result: LLMResult) -> None:
@@ -33,6 +37,14 @@ def handle_llm_call(run: PipelineRun, node_name: str | None, result: LLMResult) 
         error_message=result.error_message or "",
         estimated_cost_usd=result.estimated_cost_usd,
     )
+
+    if result.status != "success":
+        # Decision 2: a failed/timed-out call must be visible, not just
+        # reflected in an aggregate count — this is the row-level detail
+        # LLMCallLog exists for, surfaced in the log stream too.
+        logger.warning(
+            "Run %s: %s call %s — %s", run.id, node_name or "?", result.status, result.error_message or "",
+        )
 
     run.total_api_calls += 1
     run.total_input_tokens += result.input_tokens
@@ -75,6 +87,10 @@ class CostLimitedLLMClient:
                 if not self._run.halted_due_to_cost_limit:
                     self._run.halted_due_to_cost_limit = True
                     self._run.save(update_fields=["halted_due_to_cost_limit"])
+                    logger.warning(
+                        "Run %s: cost limit reached ($%.4f >= $%.4f) — halting further LLM calls.",
+                        self._run.id, current, self._run.cost_limit_usd,
+                    )
                 return LLMResult(
                     text="",
                     model=getattr(self._inner, "model", ""),
