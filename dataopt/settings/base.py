@@ -112,6 +112,10 @@ AUTH_PASSWORD_VALIDATORS = [
 # requests are redirected to the login page rather than shown a 403.
 LOGIN_URL = "/accounts/login/"
 LOGIN_REDIRECT_URL = "/"
+# Without this, LogoutView renders registration/logged_out.html, which only
+# django.contrib.admin ships — so logging out of the app landed on an
+# admin-styled page. Send people back to our own login page instead.
+LOGOUT_REDIRECT_URL = "/accounts/login/"
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
