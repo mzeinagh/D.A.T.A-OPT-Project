@@ -8,8 +8,12 @@ from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import include, path
+from django.views.generic import RedirectView
 
 urlpatterns = [
+    # The app has no page of its own at "/", but LOGIN_REDIRECT_URL sends
+    # people there after signing in, so point it at the study list.
+    path("", RedirectView.as_view(pattern_name="studies:study_list"), name="home"),
     path("admin/", admin.site.urls),
     path("accounts/login/", auth_views.LoginView.as_view(), name="login"),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
