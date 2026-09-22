@@ -4,7 +4,7 @@ from langchain_ollama.chat_models import ChatOllama
 # ---------------------------------------------------------------- Paths
 chats_dir = r"C:\Users\Grace\Documents\Code\DATA_Summer_2025\pdf\New_studies_70"
 pdf_dir = r"C:\Users\Grace\Documents\Code\DATA_Summer_2025\pdf\New_studies_70"
-handbook_dir = r".\dependants\Structured EAU1 _student_ handbook (2).pdf"
+handbook_dir = r".\dependants\eau1-handbook-structured.pdf"
 embedding_model_fp = r".\embeddings_local\all-MiniLM-L6-v2"
 
 run_number = 1

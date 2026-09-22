@@ -146,7 +146,7 @@ CELERY_TIMEZONE = TIME_ZONE
 # these are machine-specific defaults — an empty/relative default keeps the
 # repo portable; every real deployment sets these via environment.
 EMBEDDING_MODEL_PATH = env("EMBEDDING_MODEL_PATH", str(BASE_DIR / "embeddings_local" / "all-MiniLM-L6-v2"))
-HANDBOOK_PDF_PATH = env("HANDBOOK_PDF_PATH", str(BASE_DIR / "dependants" / "Structured EAU1 _student_ handbook (2).pdf"))
+HANDBOOK_PDF_PATH = env("HANDBOOK_PDF_PATH", str(BASE_DIR / "dependants" / "eau1-handbook-structured.pdf"))
 
 # ---------------------------------------------------------------- OCR (Docling)
 # Phase 3 wires these into the per-page OCR wrapper; declared here now so the

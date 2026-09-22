@@ -68,7 +68,7 @@ in §7.
 | `CELERY_BROKER_URL` | Redis URL, broker role | `redis://localhost:6379/0` |
 | `CELERY_RESULT_BACKEND` | Redis URL, result backend role | `redis://localhost:6379/0` |
 | `EMBEDDING_MODEL_PATH` | Local path to the embedding model (§4) | `/absolute/path/to/embeddings_local/all-MiniLM-L6-v2` |
-| `HANDBOOK_PDF_PATH` | Path to the evaluator's handbook PDF | `/absolute/path/to/dependants/Structured EAU1 _student_ handbook (2).pdf` |
+| `HANDBOOK_PDF_PATH` | Path to the evaluator's handbook PDF | `/absolute/path/to/dependants/eau1-handbook-structured.pdf` |
 | `OCR_TIMEOUT_SECONDS` | Per-page OCR timeout | `60` |
 | `CORPUS_DETECTION_MAX_RETRIES` | Max failed-detection retries before the UI stops offering "Retry" | `3` |
 | `OPENAI_API_KEY` | Your real API key | `<your key — never share or commit>` |

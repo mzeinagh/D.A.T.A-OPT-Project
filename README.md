@@ -87,7 +87,7 @@ DATA_Project/
 ├── pdf/
 │   └── <your_studies>/          # the toxicology report PDFs to process
 ├── dependants/
-│   └── Structured EAU1 _student_ handbook (2).pdf   # evaluator's guide
+│   └── eau1-handbook-structured.pdf                 # evaluator's guide
 ├── chats/                       # created automatically; run output goes here
 └── (the .py files from this repo)
 ```

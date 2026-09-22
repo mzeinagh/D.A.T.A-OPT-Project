@@ -489,7 +489,7 @@ CELERY_BROKER_URL=redis://localhost:6379/0
 CELERY_RESULT_BACKEND=redis://localhost:6379/0
 
 EMBEDDING_MODEL_PATH=/opt/dataopt/embeddings_local/all-MiniLM-L6-v2
-HANDBOOK_PDF_PATH="/opt/dataopt/dependants/Structured EAU1 _student_ handbook (2).pdf"
+HANDBOOK_PDF_PATH=/opt/dataopt/dependants/eau1-handbook-structured.pdf
 
 OCR_TIMEOUT_SECONDS=300
 CORPUS_DETECTION_MAX_RETRIES=3
@@ -505,9 +505,14 @@ EOF
 chmod 600 /opt/dataopt/.env
 ```
 
-> **Customise before running:** all four `<...>` placeholders. Note the quotes
-> around `HANDBOOK_PDF_PATH` — that filename contains spaces and brackets, and
-> without quoting the value is truncated at the first space.
+> **Customise before running:** all four `<...>` placeholders.
+
+> **A note on the handbook filename.** It was originally
+> `Structured EAU1 _student_ handbook (2).pdf`, and was renamed to
+> `eau1-handbook-structured.pdf` precisely because spaces and brackets in a
+> path have to be quoted everywhere they appear — and an unquoted value is
+> silently truncated at the first space. If you point `HANDBOOK_PDF_PATH` at
+> a file whose name contains spaces, wrap the value in double quotes.
 
 ---
 
