@@ -9,7 +9,6 @@ default — callers (the `studies` app's services, in Phase 3) pass
 `settings.EMBEDDING_MODEL_PATH`, which is itself environment-driven.
 """
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 from ..schemas import Document, SearchResult
 from .bm25 import SimpleBM25, generate_candidates, tokenize
@@ -17,6 +16,13 @@ from .bm25 import SimpleBM25, generate_candidates, tokenize
 
 class VectorStore:
     def __init__(self, model_dir: str, keywords: list[str] | None = None):
+        # Imported here, not at module level, because the website imports
+        # this module (views -> studies.tasks -> graph -> state) only to
+        # queue jobs. A top-level import would load PyTorch into the web
+        # process, and the web image doesn't ship PyTorch at all. Only the
+        # worker ever builds a VectorStore.
+        from sentence_transformers import SentenceTransformer
+
         self.model = SentenceTransformer(model_dir)
         self.documents: list[Document] = []
         self.embeddings: np.ndarray | None = None

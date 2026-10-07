@@ -1,0 +1,18 @@
+# Packages the background worker needs: everything the website needs, plus
+# the OCR and embedding libraries (Dockerfile target "worker").
+#
+# Install CPU-only PyTorch BEFORE this file, from PyTorch's own index:
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+# Otherwise pip pulls the GPU build of PyTorch plus about 20 NVIDIA
+# packages, adding several GB (docs/LINUX_TEST_DEPLOYMENT.md 4.5).
+-r requirements-web.txt
+
+# Local embeddings for the search index (pulls in PyTorch)
+sentence-transformers
+
+# Document processing / OCR (only docling is used by the active pipeline;
+# marker-pdf and paddleocr are only needed if you call ocr_marker() / ocr_paddle()
+# in utils.py directly)
+docling
+# marker-pdf
+# paddleocr

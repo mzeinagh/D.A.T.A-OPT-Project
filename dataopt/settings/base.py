@@ -100,6 +100,10 @@ DATABASES = {
         "PORT": env("POSTGRES_PORT", "5432"),
     }
 }
+# Azure Database for PostgreSQL requires encrypted connections; set
+# POSTGRES_SSLMODE=require there. Unset means libpq's default, as before.
+if env("POSTGRES_SSLMODE"):
+    DATABASES["default"]["OPTIONS"] = {"sslmode": env("POSTGRES_SSLMODE")}
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -126,7 +130,10 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 MEDIA_URL = "media/"
-MEDIA_ROOT = BASE_DIR / "media"
+# On Azure Container Apps this points at the Azure Files share mounted into
+# both the web and worker containers (MEDIA_ROOT=/mnt/media), so the worker
+# reads exactly the upload the website saved.
+MEDIA_ROOT = env("MEDIA_ROOT") or BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -168,6 +175,18 @@ OPENAI_MODEL = env("OPENAI_MODEL", "gpt-5")
 OPENAI_MAX_OUTPUT_TOKENS = env_int("OPENAI_MAX_OUTPUT_TOKENS", 1024)
 OPENAI_TIMEOUT_SECONDS = env_float("OPENAI_TIMEOUT_SECONDS", 60.0)
 OPENAI_MAX_RETRIES = env_int("OPENAI_MAX_RETRIES", 3)
+
+# Empty means OpenAI's own service (api.openai.com). For Azure OpenAI, set
+# it to the resource's v1 address, https://<resource>.openai.azure.com/openai/v1/,
+# with OPENAI_API_KEY the Azure key and OPENAI_MODEL the deployment name.
+OPENAI_BASE_URL = env("OPENAI_BASE_URL", "")
+
+# Optional price override for cost estimates, in USD per 1M tokens, copied
+# from the provider's pricing page. Used only when both are set; otherwise
+# llm/pricing.py's table is looked up by OPENAI_MODEL, which on Azure is a
+# deployment name the table won't know.
+OPENAI_PRICE_INPUT_USD_PER_1M = env_float("OPENAI_PRICE_INPUT_USD_PER_1M", None)
+OPENAI_PRICE_OUTPUT_USD_PER_1M = env_float("OPENAI_PRICE_OUTPUT_USD_PER_1M", None)
 
 # Optional, per-run cost ceiling. Disabled by default until real benchmark
 # data exists — enabling this without OPENAI_COST_LIMIT_USD set is a no-op.

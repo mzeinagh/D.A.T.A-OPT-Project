@@ -1,0 +1,13 @@
+# Keep secrets, local data and caches out of both images.
+.git
+.env
+.env.*
+!.env.example
+media/
+staticfiles/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+.venv/
+dump.rdb

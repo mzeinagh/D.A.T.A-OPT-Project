@@ -1,0 +1,25 @@
+# Packages the website needs at runtime. This is everything in the web
+# container image (Dockerfile target "web"), and the base that
+# requirements-worker.txt builds on.
+#
+# Keep heavy machine-learning packages (PyTorch, sentence-transformers,
+# Docling) OUT of this file: the website only queues jobs, it never runs
+# OCR or embeddings. studies/tests/test_web_imports.py fails if a change
+# makes the website's code import them again.
+
+# Core pipeline modules the website imports to queue jobs
+langgraph
+langchain-core
+pymupdf
+numpy
+
+# Django web app
+django>=5.0,<6.0
+psycopg2-binary
+celery
+redis
+openai
+
+# Serving in a container (no Nginx): the WSGI server, and static files
+gunicorn
+whitenoise

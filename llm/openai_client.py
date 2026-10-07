@@ -66,6 +66,8 @@ class OpenAIResponsesClient:
         max_retries: int = 3,
         backoff_base_seconds: float = 1.0,
         on_call: OnCallHook | None = None,
+        base_url: str | None = None,
+        price_usd_per_million: tuple[float, float] | None = None,
     ):
         if not api_key:
             raise ValueError("OpenAIResponsesClient requires an api_key (OPENAI_API_KEY).")
@@ -78,8 +80,20 @@ class OpenAIResponsesClient:
         self.max_retries = max(0, max_retries)
         self.backoff_base_seconds = backoff_base_seconds
         self._on_call = on_call
+        # (input, output) USD per 1M tokens. When set, it replaces the
+        # llm/pricing.py lookup, which is keyed by model name and so can't
+        # price an Azure deployment name.
+        self.price_usd_per_million = price_usd_per_million
 
-        self._client = OpenAI(api_key=api_key, timeout=timeout_seconds, max_retries=0)
+        # base_url None means api.openai.com. Azure OpenAI's v1 address
+        # (https://<resource>.openai.azure.com/openai/v1/) speaks the same
+        # Responses API, so the same client works there unchanged.
+        self._client = OpenAI(
+            api_key=api_key,
+            base_url=base_url or None,
+            timeout=timeout_seconds,
+            max_retries=0,
+        )
 
     def invoke(
         self,
@@ -147,6 +161,12 @@ class OpenAIResponsesClient:
 
     # ------------------------------------------------------------ helpers
 
+    def _estimate_cost(self, input_tokens: int, output_tokens: int) -> float | None:
+        if self.price_usd_per_million is None:
+            return estimate_cost_usd(self.model, input_tokens, output_tokens)
+        input_rate, output_rate = self.price_usd_per_million
+        return (input_tokens / 1_000_000) * input_rate + (output_tokens / 1_000_000) * output_rate
+
     def _sleep_backoff(self, attempt: int) -> None:
         time.sleep(self.backoff_base_seconds * (2**attempt))
 
@@ -209,6 +229,6 @@ class OpenAIResponsesClient:
             retry_count=attempt,
             error_message=error_message,
             raw_response_id=getattr(response, "id", None),
-            estimated_cost_usd=estimate_cost_usd(self.model, input_tokens, output_tokens),
+            estimated_cost_usd=self._estimate_cost(input_tokens, output_tokens),
             metadata=metadata,
         )

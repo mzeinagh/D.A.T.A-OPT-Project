@@ -23,6 +23,13 @@ def build_default_llm_client(*, on_call: OnCallHook | None = None) -> LLMClient:
     `on_call`, if given, is threaded straight through to the concrete
     client — see `llm.base.OnCallHook` for what it's for.
     """
+    price = None
+    if (
+        settings.OPENAI_PRICE_INPUT_USD_PER_1M is not None
+        and settings.OPENAI_PRICE_OUTPUT_USD_PER_1M is not None
+    ):
+        price = (settings.OPENAI_PRICE_INPUT_USD_PER_1M, settings.OPENAI_PRICE_OUTPUT_USD_PER_1M)
+
     return OpenAIResponsesClient(
         api_key=settings.OPENAI_API_KEY,
         model=settings.OPENAI_MODEL,
@@ -30,4 +37,6 @@ def build_default_llm_client(*, on_call: OnCallHook | None = None) -> LLMClient:
         timeout_seconds=settings.OPENAI_TIMEOUT_SECONDS,
         max_retries=settings.OPENAI_MAX_RETRIES,
         on_call=on_call,
+        base_url=settings.OPENAI_BASE_URL,
+        price_usd_per_million=price,
     )
