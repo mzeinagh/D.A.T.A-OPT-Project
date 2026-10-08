@@ -16,3 +16,9 @@ sentence-transformers
 docling
 # marker-pdf
 # paddleocr
+
+# OCR engine Docling picks automatically. Docling 2.135 needs a rapidocr
+# that still has PP_OCRV6_LANGS; 3.10.0 removed it, and Docling then reports
+# "No OCR engine found" and silently skips OCR on scanned pages.
+rapidocr>=3.9.1,<3.10
+onnxruntime

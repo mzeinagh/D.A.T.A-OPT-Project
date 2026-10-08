@@ -51,7 +51,9 @@ RUN pip install -r requirements-worker.txt
 # Download the models now, so the worker never downloads at startup:
 # the embedding model (its weights are not in git; the other formats on
 # the model page are skipped) and the models Docling uses, by converting
-# page 1 of the bundled handbook exactly as ocr_docling() does.
+# page 1 of the bundled handbook exactly as ocr_docling() does. Then fail
+# the build if Docling has no OCR engine (it only logs a warning and skips
+# OCR otherwise); setting the engine up also downloads its OCR models.
 COPY embeddings_local/ embeddings_local/
 COPY dependants/eau1-handbook-structured.pdf /tmp/warmup.pdf
 RUN python -c "from huggingface_hub import snapshot_download; \
@@ -61,6 +63,13 @@ ignore_patterns=['onnx/*', 'openvino/*', '*.h5', '*.msgpack', '*.ot'])" \
  && python -c "from docling.document_converter import DocumentConverter; \
 DocumentConverter().convert('/tmp/warmup.pdf', page_range=(1, 1))" \
  && rm /tmp/warmup.pdf \
+ && python -c "from docling.datamodel.accelerator_options import AcceleratorOptions; \
+from docling.datamodel.pipeline_options import OcrAutoOptions; \
+from docling.models.stages.ocr.auto_ocr_model import OcrAutoModel; \
+m = OcrAutoModel(enabled=True, artifacts_path=None, options=OcrAutoOptions(), \
+accelerator_options=AcceleratorOptions()); \
+assert m._engine is not None, 'Docling found no OCR engine'; \
+print('OCR engine:', type(m._engine).__name__)" \
  && mkdir -p /opt/models \
  && chown -R app:app /opt/models embeddings_local
 COPY --chown=app:app . .
