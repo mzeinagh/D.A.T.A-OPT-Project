@@ -25,5 +25,8 @@
             <input type="hidden" name="next" value="{{ next }}">
             <button type="submit" class="btn-primary">Log in</button>
         </form>
+        {% if allow_signup %}
+            <p class="auth-switch">New to D.A.T.A? <a href="{% url 'signup' %}">Create an account</a></p>
+        {% endif %}
     </div>
 {% endblock %}

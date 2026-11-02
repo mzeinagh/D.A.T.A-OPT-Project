@@ -79,6 +79,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "dataopt.accounts.signup_flag",
             ],
         },
     },
@@ -120,6 +121,9 @@ LOGIN_REDIRECT_URL = "/studies/"
 # django.contrib.admin ships — so logging out of the app landed on an
 # admin-styled page. Send people back to our own login page instead.
 LOGOUT_REDIRECT_URL = "/accounts/login/"
+# Open self sign-up ("Create account"). On for the test environment; set
+# DJANGO_ALLOW_SIGNUP=false to turn the page and its links off.
+ALLOW_SIGNUP = env_bool("DJANGO_ALLOW_SIGNUP", True)
 
 LANGUAGE_CODE = "en-us"
 # Times are stored in UTC (USE_TZ) and shown in Ottawa time. A named zone,

@@ -10,6 +10,8 @@ from django.contrib.auth import views as auth_views
 from django.urls import include, path
 from django.views.generic import TemplateView
 
+from dataopt.accounts import signup_view
+
 urlpatterns = [
     # The welcome page: the first thing people see, signed in or not. It
     # needs no login; every page behind it still does.
@@ -17,6 +19,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/login/", auth_views.LoginView.as_view(), name="login"),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
+    path("accounts/signup/", signup_view, name="signup"),
     path("studies/", include("studies.urls")),
 ]
 

@@ -164,6 +164,10 @@ details > summary { cursor: pointer; }
 .login-card { max-width: 380px; margin: 3rem auto; }
 .login-card .field input { max-width: none; }
 .login-card button { width: 100%; justify-content: center; }
+.signup-card { max-width: 440px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 0.75rem; }
+@media (max-width: 480px) { .field-row { grid-template-columns: 1fr; } }
+.auth-switch { margin: 1.25rem 0 0; text-align: center; font-size: 0.9rem; color: var(--muted); }
 
 @media (max-width: 760px) {
     .page, .topbar-inner { padding-left: 1rem; padding-right: 1rem; }

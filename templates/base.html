@@ -23,7 +23,7 @@
                     <form class="logout-form" method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">Log out</button></form>
                 </div>
             {% else %}
-                <div class="account"><a href="{% url 'login' %}">Log in</a></div>
+                <div class="account"><a href="{% url 'login' %}">Log in</a>{% if allow_signup %}<a href="{% url 'signup' %}">Create account</a>{% endif %}</div>
             {% endif %}
         </div>
     </header>

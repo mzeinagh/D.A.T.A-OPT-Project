@@ -25,6 +25,7 @@
                     <a class="btn btn-primary lp-cta" href="{{ studies_url }}">Open your studies</a>
                 {% else %}
                     <a class="btn btn-primary lp-cta" href="{{ login_url }}">Get started</a>
+                    {% if allow_signup %}<a class="btn" href="{% url 'signup' %}">Create account</a>{% endif %}
                 {% endif %}
                 <a class="btn btn-quiet" href="#how-it-works">See how it works</a>
             </div>
@@ -114,7 +115,7 @@
     <div class="lp-wrap lp-cta-inner">
         <div>
             <h2 class="lp-h2">Ready to analyse your first study?</h2>
-            <p class="lp-lead">Sign in to upload a document and see the answers.</p>
+            <p class="lp-lead">Sign in to upload a document and see the answers.{% if allow_signup and not user.is_authenticated %} New here? <a href="{% url 'signup' %}">Create an account</a>.{% endif %}</p>
         </div>
         {% if user.is_authenticated %}
             <a class="btn btn-primary lp-cta" href="{{ studies_url }}">Open your studies</a>
