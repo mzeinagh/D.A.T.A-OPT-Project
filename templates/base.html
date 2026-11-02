@@ -10,7 +10,7 @@
 <body>
     <header class="topbar">
         <div class="topbar-inner">
-            <a class="brand" href="{% url 'studies:study_list' %}">D.A.T.A</a>
+            <a class="brand" href="{% url 'home' %}" title="Go to the welcome page">D.A.T.A</a>
             {% if user.is_authenticated %}
                 {% with current=request.resolver_match.url_name %}
                 <nav class="nav" aria-label="Main">

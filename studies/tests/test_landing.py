@@ -60,3 +60,12 @@ def test_welcome_page_spells_out_the_name_and_unit(client):
     assert "Environmental Assessment Unit" in html
     assert "flexible, scalable design" in html
     assert "Intelligent scientific document analysis" not in html
+
+
+def test_brand_links_to_welcome_page_on_every_page(client):
+    User.objects.create_user(username="aida", password="pw12345")
+    client.login(username="aida", password="pw12345")
+
+    for url in ["/", reverse("studies:study_list"), reverse("studies:upload")]:
+        html = client.get(url).content.decode()
+        assert f'class="brand" href="{reverse("home")}"' in html
