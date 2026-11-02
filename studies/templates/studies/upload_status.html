@@ -1,9 +1,15 @@
 {% extends "base.html" %}
 {% block title %}{{ batch.original_filename }} — D.A.T.A{% endblock %}
+{% block head %}
+    {% if auto_refresh_seconds %}<meta http-equiv="refresh" content="{{ auto_refresh_seconds }}">{% endif %}
+{% endblock %}
 {% block content %}
     <h1>{{ batch.original_filename }}</h1>
     <p>Uploaded {{ batch.uploaded_at }} by {{ batch.uploaded_by }} &middot;
        status: <span class="status-pill">{{ batch.get_split_status_display }}</span></p>
+    {% if auto_refresh_seconds %}
+        <p style="color:#666;font-size:0.85rem;">Still working. This page refreshes itself every {{ auto_refresh_seconds }} seconds.</p>
+    {% endif %}
 
     {% if batch.split_status == "failed" %}
         <div class="notice">
@@ -95,12 +101,12 @@
             <tbody>
                 {% for study in studies %}
                     <tr>
-                        <td>{{ study.label|default:"(whole document)" }}</td>
+                        <td><a href="{% url 'studies:study_detail' study.id %}">{{ study.label|default:"(whole document)" }}</a></td>
                         <td>{{ study.assessment_category|default:"—" }}</td>
                         <td><span class="status-pill">{{ study.get_status_display }}</span></td>
                         <td>
                             {% for run in study.runs.all %}
-                                Run {{ run.run_number }}:
+                                <a href="{% url 'studies:run_detail' study.id run.id %}">Run {{ run.run_number }}</a>:
                                 <span class="status-pill">{{ run.get_status_display }}</span>
                                 {% if run.total_api_calls %}({{ run.total_api_calls }} calls){% endif %}
                                 <br>

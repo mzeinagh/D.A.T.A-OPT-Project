@@ -226,3 +226,65 @@ class TestExportViews:
 
         resp = client.get(reverse("studies:export_run_full", kwargs={"study_id": study.id, "run_id": run.id}))
         assert resp.status_code == 200
+
+
+class TestUploadStatusLinksAndRefresh:
+    """The upload status page links straight to each study and run, and
+    reloads itself only while the worker still has something to do."""
+
+    REFRESH_TAG = b'http-equiv="refresh"'
+
+    def _get_status_page(self, client, batch):
+        client.login(username="alice", password="pw12345")
+        return client.get(reverse("studies:upload_status", kwargs={"batch_id": batch.id}))
+
+    def test_links_to_study_and_run(self, client, study_with_run):
+        study, run, _ = study_with_run
+
+        resp = self._get_status_page(client, study.batch)
+
+        assert resp.status_code == 200
+        assert reverse("studies:study_detail", kwargs={"study_id": study.id}).encode() in resp.content
+        assert reverse("studies:run_detail", kwargs={"study_id": study.id, "run_id": run.id}).encode() in resp.content
+
+    def test_no_refresh_once_run_completed(self, client, study_with_run):
+        study, _, _ = study_with_run
+
+        resp = self._get_status_page(client, study.batch)
+
+        assert self.REFRESH_TAG not in resp.content
+
+    def test_refreshes_while_run_is_running(self, client, study_with_run):
+        study, run, _ = study_with_run
+        run.status = "running"
+        run.save(update_fields=["status"])
+
+        resp = self._get_status_page(client, study.batch)
+
+        assert self.REFRESH_TAG in resp.content
+
+    def test_refreshes_while_detecting(self, client, alice):
+        upload = SimpleUploadedFile("study.pdf", b"%PDF-1.4 fake", content_type="application/pdf")
+        batch = UploadBatch.objects.create(
+            uploaded_file=upload,
+            original_filename="study.pdf",
+            uploaded_by=alice,
+            split_status=UploadBatch.SplitStatus.DETECTING,
+        )
+
+        resp = self._get_status_page(client, batch)
+
+        assert self.REFRESH_TAG in resp.content
+
+    def test_no_refresh_while_waiting_for_review(self, client, alice):
+        upload = SimpleUploadedFile("study.pdf", b"%PDF-1.4 fake", content_type="application/pdf")
+        batch = UploadBatch.objects.create(
+            uploaded_file=upload,
+            original_filename="study.pdf",
+            uploaded_by=alice,
+            split_status=UploadBatch.SplitStatus.AWAITING_CONFIRMATION,
+        )
+
+        resp = self._get_status_page(client, batch)
+
+        assert self.REFRESH_TAG not in resp.content

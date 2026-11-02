@@ -35,6 +35,9 @@ from .corpus_detection import (
 from .forms import DetectedCorpusFormSet, UploadBatchForm
 from .models import PipelineRun, Study, UploadBatch
 
+# How often the upload status page reloads itself while work is in progress.
+AUTO_REFRESH_SECONDS = 10
+
 
 def _can_access_batch(user, batch: UploadBatch) -> bool:
     return user.is_staff or batch.uploaded_by_id == user.id
@@ -98,6 +101,19 @@ def upload_status_view(request, batch_id: int):
 
     max_retries = settings.CORPUS_DETECTION_MAX_RETRIES
 
+    # The page reloads itself while the worker still has something to do,
+    # so nobody has to press refresh to see detection or a run finish.
+    # It stops once detection has settled and no run is pending or running.
+    detection_in_progress = batch.split_status in (
+        UploadBatch.SplitStatus.NOT_APPLICABLE,
+        UploadBatch.SplitStatus.DETECTING,
+    )
+    run_in_progress = any(
+        run.status in (PipelineRun.Status.PENDING, PipelineRun.Status.RUNNING)
+        for study in studies
+        for run in study.runs.all()
+    )
+
     return render(
         request,
         "studies/upload_status.html",
@@ -108,6 +124,7 @@ def upload_status_view(request, batch_id: int):
             "awaiting_review": batch.split_status == UploadBatch.SplitStatus.AWAITING_CONFIRMATION,
             "max_retries": max_retries,
             "retry_limit_reached": batch.retry_count >= max_retries,
+            "auto_refresh_seconds": AUTO_REFRESH_SECONDS if detection_in_progress or run_in_progress else None,
         },
     )
 
