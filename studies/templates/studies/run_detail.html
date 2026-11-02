@@ -11,6 +11,7 @@
             <p class="sub">AI model: {{ run.llm_model|default:"—" }}</p>
         </div>
         <div class="actions">
+            <a class="btn" href="{% url 'studies:study_document' study.id %}">Extracted text</a>
             <a class="btn" href="{% url 'studies:export_run_answers' study.id run.id %}">Download answers (.txt)</a>
             <a class="btn" href="{% url 'studies:export_run_full' study.id run.id %}">Download full conversation (.txt)</a>
         </div>
@@ -78,7 +79,7 @@
                             <div class="meta">
                                 {% if answer.page_labels %}
                                     <span>Based on</span>
-                                    {% for label in answer.page_labels %}<span class="chip">p. {{ label }}</span>{% endfor %}
+                                    {% for ref in answer.page_labels %}{% if ref.page %}<a class="chip" href="{% url 'studies:study_document' study.id %}#page-{{ ref.page }}" title="Open the extracted text of page {{ ref.page }}">p. {{ ref.label }}</a>{% else %}<span class="chip">p. {{ ref.label }}</span>{% endif %}{% endfor %}
                                 {% else %}
                                     <span>No source pages recorded</span>
                                 {% endif %}

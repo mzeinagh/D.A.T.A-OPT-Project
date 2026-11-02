@@ -156,7 +156,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* ---------- review page */
 .corpus-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 1.1rem 1.25rem; margin: 0 0 1rem; }
 .corpus-card legend { font-weight: 700; padding: 0 0.4rem; }
-.preview { white-space: pre-wrap; font-size: 0.85rem; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 0.75rem; margin-top: 0.5rem; }
+.preview { white-space: pre-wrap; font-size: 0.85rem; max-height: 9rem; overflow-y: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 0.75rem; margin-top: 0.5rem; }
 details > summary { cursor: pointer; }
 
 /* ---------- login */
@@ -173,3 +173,45 @@ details > summary { cursor: pointer; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 html { scroll-behavior: smooth; }
+
+/* ---------- extracted-text reader (document page and review page) */
+.reader-toolbar { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.6rem; }
+.reader-search { display: flex; gap: 0.35rem; align-items: center; flex: 1; min-width: 260px; }
+.reader-search input { flex: 1; min-width: 0; padding: 0.5rem 0.7rem; font: inherit; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+.reader-search button { padding: 0.45rem 0.7rem; }
+.reader-count { font-size: 0.85rem; color: var(--muted); white-space: nowrap; min-width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: none; border-radius: 0; padding: 0.45rem 0.9rem; background: var(--surface); color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.reader-options { display: flex; gap: 0.5rem 1.25rem; flex-wrap: wrap; align-items: center; font-size: 0.88rem; margin-bottom: 0.5rem; }
+.reader-options label { display: inline-flex; gap: 0.4rem; align-items: center; }
+.reader-options select { font: inherit; padding: 0.25rem 0.4rem; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.reader-options .reader-spacer { flex: 1; }
+.reader-options button { padding: 0.3rem 0.6rem; font-size: 0.85rem; }
+.reader:not(.js) .reader-toolbar, .reader:not(.js) .reader-options { display: none; }
+.page-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.page-sec { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); scroll-margin-top: 1rem; }
+.page-sec > summary { display: flex; gap: 0.5rem; align-items: center; padding: 0.55rem 0.9rem; list-style: none; }
+.page-sec > summary::-webkit-details-marker { display: none; }
+.page-sec > summary::before { content: "\25b8"; color: var(--muted); width: 0.8rem; }
+.page-sec[open] > summary::before { content: "\25be"; }
+.page-sec[open] { border-color: var(--accent); }
+.page-sec[open] > summary { border-bottom: 1px solid var(--line); }
+.page-sec.flash { box-shadow: 0 0 0 3px var(--accent-soft); }
+.page-title { font-weight: 700; }
+.page-matches { margin-left: auto; font-size: 0.8rem; color: var(--muted); }
+.page-matches.has { color: var(--accent); font-weight: 600; }
+.page-body { padding: 0.8rem 1rem 1rem; }
+.page-text { font-size: 0.92rem; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
+.reader.js .page-text { white-space: normal; }
+.page-text .text-block { white-space: pre-wrap; }
+.page-text .table-wrap { overflow-x: auto; margin: 0.5rem 0; }
+.page-text .text-table { width: auto; min-width: 50%; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.page-text .text-table th, .page-text .text-table td { border: 1px solid var(--line); padding: 0.3rem 0.55rem; white-space: normal; }
+.page-text .text-table th { background: var(--bg); text-transform: none; letter-spacing: 0; color: var(--ink); font-size: 0.85rem; }
+mark.hit { background: #ffe58a; color: inherit; border-radius: 2px; padding: 0 1px; }
+mark.hit.current { background: #ffb547; outline: 2px solid #c77700; }
+mark.kw { background: #e6e1f7; color: inherit; border-radius: 2px; padding: 0 1px; }
+.chip-warn { background: var(--warn-soft); color: var(--warn); }
+a.chip { text-decoration: none; }
+a.chip:hover { background: var(--accent); color: #fff; }

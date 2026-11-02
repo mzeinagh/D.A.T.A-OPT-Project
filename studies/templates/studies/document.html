@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% load static page_text %}
+{% block title %}Extracted text — {{ study.label|default:"Study" }} — D.A.T.A{% endblock %}
+{% block content %}
+    <div class="page-head">
+        <div>
+            <div class="breadcrumb">
+                <a href="{% url 'studies:study_list' %}">Studies</a> ›
+                <a href="{% url 'studies:study_detail' study.id %}">{{ study.label|default:"(whole document)" }}</a> › Extracted text
+            </div>
+            <h1>Extracted text</h1>
+            <p class="sub">What the app read from <strong>{{ study.batch.original_filename }}</strong>, page by page.
+               "Clean" is the text the AI model received; "Raw" is the text taken straight from the PDF.</p>
+        </div>
+        {% if latest_run %}
+            <a class="btn" href="{% url 'studies:run_detail' study.id latest_run.id %}">Back to the answers</a>
+        {% endif %}
+    </div>
+
+    {% with pages_list=pages|page_views %}
+        {% if pages_list %}
+            {% question_keywords as keywords %}
+            {% include "studies/_page_text.html" with pages=pages_list id_prefix="" keywords=keywords %}
+        {% else %}
+            <div class="card"><p class="muted">No page text was saved for this study.</p></div>
+        {% endif %}
+    {% endwith %}
+
+    <script src="{% static 'studies/document.js' %}"></script>
+{% endblock %}

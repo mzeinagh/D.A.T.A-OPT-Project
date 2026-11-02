@@ -7,6 +7,7 @@
             <h1>{{ study.label|default:"(whole document)" }} <span class="status-pill status-{{ study.status }}">{{ study.get_status_display }}</span></h1>
             <p class="sub">From <a href="{% url 'studies:upload_status' study.batch_id %}">{{ study.batch.original_filename }}</a></p>
         </div>
+        <a class="btn btn-primary" href="{% url 'studies:study_document' study.id %}">Read the extracted text</a>
     </div>
 
     {% if study.error_message %}

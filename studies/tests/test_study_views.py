@@ -13,7 +13,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
-from studies.models import Answer, PromptConfig, Question, Study, UploadBatch
+from studies.models import Answer, DetectedCorpus, PromptConfig, Question, Study, StudyPage, UploadBatch
 from studies.services import start_pipeline_run
 
 pytestmark = pytest.mark.django_db
@@ -349,8 +349,15 @@ class TestProgressStepsAndPageChips:
 
         resp = client.get(reverse("studies:run_detail", kwargs={"study_id": study.id, "run_id": run.id}))
 
-        assert resp.context["answers"][0].page_labels == ["4", "7", "1, 2"]
-        assert "p. 4" in resp.content.decode()
+        assert resp.context["answers"][0].page_labels == [
+            {"label": "4", "page": 4},
+            {"label": "7", "page": 7},
+            {"label": "1, 2", "page": None},
+        ]
+        html = resp.content.decode()
+        document_url = reverse("studies:study_document", kwargs={"study_id": study.id})
+        assert f'href="{document_url}#page-4"' in html
+        assert "p. 1, 2" in html
 
     def test_answer_without_pages_says_so(self, client, study_with_run):
         study, run, _ = study_with_run
@@ -359,3 +366,78 @@ class TestProgressStepsAndPageChips:
         resp = client.get(reverse("studies:run_detail", kwargs={"study_id": study.id, "run_id": run.id}))
 
         assert "No source pages recorded" in resp.content.decode()
+
+
+class TestStudyDocumentPage:
+    """The extracted text of a study, page by page, for its owner and staff only."""
+
+    def _url(self, study):
+        return reverse("studies:study_document", kwargs={"study_id": study.id})
+
+    def _add_pages(self, study):
+        StudyPage.objects.create(study=study, page_number=2, raw_text="raw two", cleaned_text="clean two", final_text="Purity 99.5%")
+        StudyPage.objects.create(
+            study=study, page_number=1, extraction_method="ocr", raw_text="", final_text="| Lot | Purity |\n|---|---|\n| A | 99 |",
+            is_table=True, ocr_attempted=True, ocr_succeeded=True,
+        )
+
+    def test_owner_sees_every_page_in_order(self, client, study_with_run):
+        study, _, _ = study_with_run
+        self._add_pages(study)
+        client.login(username="alice", password="pw12345")
+
+        resp = client.get(self._url(study))
+
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert 'id="page-1"' in html and 'id="page-2"' in html
+        assert html.index('id="page-1"') < html.index('id="page-2"')
+        assert "Purity 99.5%" in html
+        assert "raw two" in html  # raw differs from clean, so it is offered too
+        assert ">OCR<" in html
+
+    def test_other_user_is_refused(self, client, study_with_run, bob):
+        study, _, _ = study_with_run
+        client.login(username="bob", password="pw12345")
+
+        resp = client.get(self._url(study))
+
+        assert resp.status_code == 403
+
+    def test_staff_can_open(self, client, study_with_run, staff_user):
+        study, _, _ = study_with_run
+        client.login(username="staff", password="pw12345")
+
+        assert client.get(self._url(study)).status_code == 200
+
+    def test_no_pages_says_so(self, client, study_with_run):
+        study, _, _ = study_with_run
+        client.login(username="alice", password="pw12345")
+
+        resp = client.get(self._url(study))
+
+        assert "No page text was saved for this study." in resp.content.decode()
+
+    def test_review_page_shows_full_text_of_each_page(self, client, alice):
+        upload = SimpleUploadedFile("study.pdf", b"%PDF-1.4 fake", content_type="application/pdf")
+        batch = UploadBatch.objects.create(
+            uploaded_file=upload, original_filename="study.pdf", uploaded_by=alice,
+            split_status=UploadBatch.SplitStatus.AWAITING_CONFIRMATION,
+        )
+        long_text = "word " * 400 + "END-OF-PAGE-MARKER"
+        DetectedCorpus.objects.create(
+            batch=batch, order=0, detection_type=DetectedCorpus.DetectionType.SINGLE_DOCUMENT, title="One",
+            page_numbers=[1], preview_text=long_text[:500],
+            cached_page_provenance=[{
+                "page_num": 1, "extraction_method": "text", "raw_text": long_text, "cleaned_text": long_text,
+                "final_text": long_text, "is_table": False, "is_toc": False, "ocr_attempted": False,
+                "ocr_succeeded": False, "ocr_error": None, "ocr_duration_ms": None,
+            }],
+        )
+        client.login(username="alice", password="pw12345")
+
+        resp = client.get(reverse("studies:review", kwargs={"batch_id": batch.id}))
+
+        html = resp.content.decode()
+        assert "END-OF-PAGE-MARKER" in html
+        assert "Check the extracted text (1 page)" in html

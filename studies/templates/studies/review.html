@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static page_text %}
 {% block title %}Review — {{ batch.original_filename }} — D.A.T.A{% endblock %}
 {% block content %}
     <div class="page-head">
@@ -21,6 +22,7 @@
         </div>
     {% endif %}
 
+    {% question_keywords as keywords %}
     <form method="post">
         {% csrf_token %}
         {{ formset.management_form }}
@@ -61,11 +63,19 @@
                 {% endif %}
 
                 {% if corpus.preview_text %}
-                    <details style="margin-top:1rem;">
-                        <summary>Preview the extracted text (first part only)</summary>
-                        <div class="preview">{{ corpus.preview_text }}</div>
-                    </details>
+                    <p class="small muted" style="margin:1rem 0 0.3rem;">Start of the extracted text</p>
+                    <div class="preview">{{ corpus.preview_text }}</div>
                 {% endif %}
+                {% with pages_list=corpus.cached_page_provenance|page_views %}
+                    {% if pages_list %}
+                        <details class="review-text" style="margin-top:0.75rem;">
+                            <summary>Check the extracted text ({{ pages_list|length }} page{{ pages_list|length|pluralize }})</summary>
+                            <div style="margin-top:0.75rem;">
+                                {% include "studies/_page_text.html" with pages=pages_list id_prefix=corpus.id|stringformat:"d"|add:"-" keywords=keywords %}
+                            </div>
+                        </details>
+                    {% endif %}
+                {% endwith %}
             </fieldset>
             {% endwith %}
         {% endfor %}
@@ -76,4 +86,5 @@
             <button type="submit" name="action" value="cancel" class="btn-quiet btn-danger">Cancel</button>
         </div>
     </form>
+    <script src="{% static 'studies/document.js' %}"></script>
 {% endblock %}

@@ -1,0 +1,64 @@
+{% comment %}
+Extracted text, one collapsible section per PDF page, with search, a
+clean/raw switch and page filters (studies/static/studies/document.js).
+Needs: pages (from the page_views filter), id_prefix (unique per reader on
+the page) and keywords (list of strings). Without JavaScript the text still
+shows as plain text in each section.
+{% endcomment %}
+<div class="reader" data-reader>
+    {{ keywords|json_script }}
+    <div class="reader-toolbar" role="search">
+        <div class="reader-search">
+            <input type="search" data-search placeholder="Search the text, e.g. purity or mg/kg" aria-label="Search the extracted text">
+            <span class="reader-count" data-count aria-live="polite"></span>
+            <button type="button" data-prev aria-label="Previous match">‹</button>
+            <button type="button" data-next aria-label="Next match">›</button>
+        </div>
+        <div class="seg" role="group" aria-label="Text version">
+            <button type="button" data-mode="clean" aria-pressed="true" title="The text that was sent to the AI model, including OCR output">Clean</button>
+            <button type="button" data-mode="raw" aria-pressed="false" title="The unedited text taken straight from the PDF">Raw</button>
+        </div>
+    </div>
+    <div class="reader-options">
+        {% if keywords %}<label><input type="checkbox" data-keywords-toggle> Highlight question keywords</label>{% endif %}
+        <label><input type="checkbox" data-only-matches> Only pages with matches</label>
+        <label>Show
+            <select data-filter aria-label="Which pages to show">
+                <option value="all">All pages</option>
+                <option value="ocr">Pages read by OCR</option>
+                <option value="table">Pages with tables</option>
+            </select>
+        </label>
+        <span class="reader-spacer"></span>
+        <button type="button" class="btn-quiet" data-expand>Open all</button>
+        <button type="button" class="btn-quiet" data-collapse>Close all</button>
+    </div>
+    <p class="muted small reader-summary">
+        {{ pages|length }} page{{ pages|length|pluralize }}
+        <span data-summary></span>
+    </p>
+    <ol class="page-list">
+        {% for p in pages %}
+            <li data-page-item data-ocr="{% if p.method == 'ocr' %}1{% endif %}" data-table="{% if p.is_table %}1{% endif %}">
+                <details class="page-sec" id="{{ id_prefix }}page-{{ p.number }}" data-page>
+                    <summary>
+                        <span class="page-title">Page {{ p.number }}</span>
+                        {% if p.method == "ocr" %}<span class="chip chip-warn" title="This page was read from an image (OCR). Check it against the PDF.">OCR</span>{% elif p.method == "fallback_text" %}<span class="chip chip-warn" title="OCR failed on this page, so the plain PDF text was used.">OCR failed</span>{% endif %}
+                        {% if p.is_table %}<span class="chip">table</span>{% endif %}
+                        {% if p.is_toc %}<span class="chip chip-plain">contents</span>{% endif %}
+                        {% if not p.clean.strip %}<span class="chip chip-plain">no text</span>{% endif %}
+                        <span class="page-matches" data-matches></span>
+                    </summary>
+                    <div class="page-body">
+                        <div class="page-text" data-text="clean">{{ p.clean }}</div>
+                        {% if p.raw %}
+                            <div class="page-text" data-text="raw" hidden>{{ p.raw }}</div>
+                        {% else %}
+                            <p class="muted small" data-text-same hidden>The raw text of this page is the same as the clean text.</p>
+                        {% endif %}
+                    </div>
+                </details>
+            </li>
+        {% endfor %}
+    </ol>
+</div>

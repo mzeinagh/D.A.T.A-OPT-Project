@@ -12,6 +12,7 @@ urlpatterns = [
     path("upload/<int:batch_id>/process-as-single/", views.process_as_single_view, name="process_as_single"),
     path("", views.study_list_view, name="study_list"),
     path("<int:study_id>/", views.study_detail_view, name="study_detail"),
+    path("<int:study_id>/document/", views.study_document_view, name="study_document"),
     path("<int:study_id>/runs/<int:run_id>/", views.run_detail_view, name="run_detail"),
     path("<int:study_id>/runs/<int:run_id>/export/full/", views.export_run_full_view, name="export_run_full"),
     path("<int:study_id>/runs/<int:run_id>/export/answers/", views.export_run_answers_view, name="export_run_answers"),

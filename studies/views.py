@@ -370,10 +370,11 @@ def run_detail_view(request, study_id: int, run_id: int):
     )
 
 
-def _page_labels(refs) -> list[str]:
-    """The page numbers an answer was based on, as short labels for the
-    results page ("4", or "1, 2, 3" for a summary that joined pages with
-    "+"). Only reads `Answer.retrieved_page_refs`; duplicates are dropped.
+def _page_labels(refs) -> list[dict]:
+    """The pages an answer was based on, for the chips on the results page:
+    `label` is what's shown ("4", or "1, 2, 3" for a summary that joined
+    pages with "+") and `page` is the page number to link to, when there is
+    exactly one. Only reads `Answer.retrieved_page_refs`; duplicates are dropped.
     """
     labels = []
     for ref in refs or []:
@@ -384,7 +385,26 @@ def _page_labels(refs) -> list[str]:
         if label not in labels:
             labels.append(label)
     # Single page numbers in reading order; anything else keeps its place after them.
-    return sorted(labels, key=lambda l: (0, int(l)) if l.isdigit() else (1, 0))
+    labels.sort(key=lambda l: (0, int(l)) if l.isdigit() else (1, 0))
+    return [{"label": l, "page": int(l) if l.isdigit() else None} for l in labels]
+
+
+@login_required
+def study_document_view(request, study_id: int):
+    """The extracted text of a study, page by page, with search and a
+    clean/raw switch. Read-only: shows the `StudyPage` rows saved when the
+    study was created; nothing is re-extracted.
+    """
+    study = get_object_or_404(Study.objects.select_related("batch"), pk=study_id)
+    if not _can_access_study(request.user, study):
+        raise PermissionDenied("You don't have access to this study.")
+
+    latest_run = study.runs.order_by("-run_number").first()
+    return render(
+        request,
+        "studies/document.html",
+        {"study": study, "pages": study.pages.all(), "latest_run": latest_run},
+    )
 
 
 # ==================================================================== export
