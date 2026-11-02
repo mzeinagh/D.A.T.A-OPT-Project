@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load money %}
 {% block title %}{{ study.label|default:"Study" }} — D.A.T.A{% endblock %}
 {% block content %}
     <div class="page-head">
@@ -31,7 +32,7 @@
                 <thead>
                     <tr>
                         <th>Run</th><th>Status</th><th>Started</th><th>Finished</th>
-                        <th class="num">AI calls</th><th class="num">Tokens (in / out)</th><th class="num">Est. cost (USD)</th>
+                        <th class="num">AI calls</th><th class="num">Tokens (in / out)</th><th class="num">Est. cost</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -43,7 +44,7 @@
                             <td>{{ run.finished_at|default:"—" }}</td>
                             <td class="num">{{ run.total_api_calls }}</td>
                             <td class="num">{{ run.total_input_tokens }} / {{ run.total_output_tokens }}</td>
-                            <td class="num">{{ run.estimated_cost_usd|default:"—" }}</td>
+                            <td class="num">{{ run.estimated_cost_usd|cost }}</td>
                         </tr>
                     {% endfor %}
                 </tbody>

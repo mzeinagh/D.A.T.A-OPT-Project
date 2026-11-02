@@ -188,6 +188,11 @@ OPENAI_BASE_URL = env("OPENAI_BASE_URL", "")
 OPENAI_PRICE_INPUT_USD_PER_1M = env_float("OPENAI_PRICE_INPUT_USD_PER_1M", None)
 OPENAI_PRICE_OUTPUT_USD_PER_1M = env_float("OPENAI_PRICE_OUTPUT_USD_PER_1M", None)
 
+# Optional: Canadian dollars per 1 US dollar, for showing cost estimates in
+# CAD as well. Display only; costs are still calculated and stored in USD.
+# Unset, pages show USD alone.
+COST_USD_TO_CAD_RATE = env_float("COST_USD_TO_CAD_RATE", None)
+
 # Optional, per-run cost ceiling. Disabled by default until real benchmark
 # data exists — enabling this without OPENAI_COST_LIMIT_USD set is a no-op.
 OPENAI_COST_LIMIT_ENABLED = env_bool("OPENAI_COST_LIMIT_ENABLED", False)

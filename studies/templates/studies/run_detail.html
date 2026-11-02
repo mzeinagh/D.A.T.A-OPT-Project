@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load money %}
 {% block title %}Run {{ run.run_number }} — {{ study.label|default:"Study" }}{% endblock %}
 {% block content %}
     <div class="page-head">
@@ -22,8 +23,8 @@
         <div class="tile"><b>{{ run.total_api_calls }}</b><span>AI calls{% if failed_calls %}, {{ failed_calls|length }} failed{% endif %}</span></div>
         <div class="tile"><b>{{ run.total_input_tokens }} / {{ run.total_output_tokens }}</b><span>Tokens in / out</span></div>
         <div class="tile">
-            {% if run.estimated_cost_usd %}
-                <b>${{ run.estimated_cost_usd|floatformat:4 }}</b><span>Estimated cost (USD)</span>
+            {% if run.estimated_cost_usd is not None %}
+                <b>{{ run.estimated_cost_usd|cost }}</b><span title="Every input token is priced at the full rate, because cached tokens aren't recorded separately. The real cost may be a little lower.">Estimated cost (upper estimate)</span>
             {% else %}
                 <b>—</b><span title="Prices for this model are not set, so the cost can't be estimated.">Cost (prices not set)</span>
             {% endif %}

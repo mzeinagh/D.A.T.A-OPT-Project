@@ -17,8 +17,16 @@ verify, not a guarantee.
 """
 
 # {model: (usd_per_million_input_tokens, usd_per_million_output_tokens)}
+#
+# "gpt-5.4-mini" is the Azure OpenAI deployment of gpt-5.4-mini (2026-03-17),
+# Global Standard: $0.75 input / $4.50 output per 1M tokens, from Microsoft's
+# announcement (techcommunity.microsoft.com, "Introducing OpenAI's GPT-5.4
+# mini and GPT-5.4 nano", checked 2026-11-02). Cached input is cheaper
+# ($0.075), but the app doesn't record cached tokens separately, so every
+# input token is priced at the full rate: these estimates are an upper bound.
 PRICING_USD_PER_MILLION_TOKENS: dict[str, tuple[float, float]] = {
     "gpt-5": (1.25, 10.00),
+    "gpt-5.4-mini": (0.75, 4.50),
 }
 
 
