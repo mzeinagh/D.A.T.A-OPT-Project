@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load display %}
 {% block title %}Studies — D.A.T.A{% endblock %}
 {% block content %}
     <div class="page-head">
@@ -32,9 +33,9 @@
                             <td><a href="{% url 'studies:study_detail' study.id %}">{{ study.label|default:"(whole document)" }}</a></td>
                             <td>{{ study.assessment_category|default:"—" }}</td>
                             <td><span class="status-pill status-{{ study.status }}">{{ study.get_status_display }}</span></td>
-                            {% if user.is_staff %}<td>{{ study.batch.uploaded_by }}</td>{% endif %}
+                            {% if user.is_staff %}<td>{{ study.batch.uploaded_by|display_name }}</td>{% endif %}
                             <td class="num">{{ study.runs.all|length }}</td>
-                            <td>{{ study.created_at }}</td>
+                            <td>{{ study.created_at|when }}</td>
                         </tr>
                     {% endfor %}
                 </tbody>

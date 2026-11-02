@@ -23,3 +23,6 @@ openai
 # Serving in a container (no Nginx): the WSGI server, and static files
 gunicorn
 whitenoise
+
+# Time zone rules for America/Toronto, in case the base image has none.
+tzdata

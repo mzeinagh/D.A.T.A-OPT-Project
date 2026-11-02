@@ -8,6 +8,7 @@ urlpatterns = [
     path("upload/", views.upload_view, name="upload"),
     path("upload/<int:batch_id>/", views.upload_status_view, name="upload_status"),
     path("upload/<int:batch_id>/review/", views.review_view, name="review"),
+    path("upload/<int:batch_id>/process-now/", views.process_now_view, name="process_now"),
     path("upload/<int:batch_id>/retry/", views.retry_detection_view, name="retry_detection"),
     path("upload/<int:batch_id>/process-as-single/", views.process_as_single_view, name="process_as_single"),
     path("", views.study_list_view, name="study_list"),

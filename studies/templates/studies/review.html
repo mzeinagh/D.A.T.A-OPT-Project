@@ -11,8 +11,7 @@
             <h1>Review the studies found in this PDF</h1>
             <p class="sub">{{ formset.forms|length }} possible
                {% if formset.forms|length == 1 %}study or assessment was{% else %}studies or assessments were{% endif %}
-               found in <strong>{{ batch.original_filename }}</strong>. Nothing has been sent to the AI model yet.
-               Check each one below, then confirm.</p>
+               found in <strong>{{ batch.original_filename }}</strong>. Nothing has been sent to the AI model yet.</p>
         </div>
     </div>
 
@@ -21,6 +20,16 @@
             <ul class="errorlist">{% for e in formset.non_form_errors %}<li>{{ e }}</li>{% endfor %}</ul>
         </div>
     {% endif %}
+
+    <div class="notice">
+        <strong>Reviewing is optional.</strong>
+        <p>You can open each study's extracted text below to check it, change titles, or leave a study out.
+           Or skip this and process everything now; the extracted text stays available on each study's page.</p>
+        <form method="post" action="{% url 'studies:process_now' batch.id %}">
+            {% csrf_token %}
+            <button type="submit" class="btn-primary">Skip the review and process now</button>
+        </form>
+    </div>
 
     {% question_keywords as keywords %}
     <form method="post">
@@ -62,12 +71,13 @@
                     </div>
                 {% endif %}
 
-                {% if corpus.preview_text %}
-                    <p class="small muted" style="margin:1rem 0 0.3rem;">Start of the extracted text</p>
-                    <div class="preview">{{ corpus.preview_text }}</div>
-                {% endif %}
                 {% with pages_list=corpus.cached_page_provenance|page_views %}
-                    {% if pages_list %}
+                    {% if not pages_list and corpus.preview_text %}
+                        <details style="margin-top:1rem;">
+                            <summary>Check the extracted text (first part only)</summary>
+                            <div class="preview">{{ corpus.preview_text }}</div>
+                        </details>
+                    {% elif pages_list %}
                         <details class="review-text" style="margin-top:0.75rem;">
                             <summary>Check the extracted text ({{ pages_list|length }} page{{ pages_list|length|pluralize }})</summary>
                             <div style="margin-top:0.75rem;">

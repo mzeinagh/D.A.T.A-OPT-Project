@@ -162,7 +162,8 @@ class TestAwaitingReviewMessaging:
         resp = logged_in_client.get(reverse("studies:upload_status", kwargs={"batch_id": batch.id}))
 
         assert resp.status_code == 200
-        assert b"needs review" in resp.content
+        assert b"Ready to process" in resp.content
+        assert reverse("studies:process_now", kwargs={"batch_id": batch.id}).encode() in resp.content
         review_url = reverse("studies:review", kwargs={"batch_id": batch.id})
         assert review_url.encode() in resp.content
         # Still no confirm/exclude form fields directly on *this* page.

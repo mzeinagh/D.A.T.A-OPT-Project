@@ -260,6 +260,45 @@ def review_view(request, batch_id: int):
 
 
 @login_required
+def process_now_view(request, batch_id: int):
+    """POST-only. Skips the optional review: confirms every detected study
+    still marked to be included (all of them, unless someone excluded one
+    on the review page) and starts processing, exactly as pressing
+    "Confirm" on the review page with no changes would. The extracted text
+    stays available afterwards on each study's "Extracted text" page.
+    """
+    batch = get_object_or_404(UploadBatch, pk=batch_id)
+    if not _can_access_batch(request.user, batch):
+        raise PermissionDenied("You don't have access to this upload.")
+    if request.method != "POST":
+        return redirect("studies:upload_status", batch_id=batch.id)
+
+    if batch.split_status != UploadBatch.SplitStatus.AWAITING_CONFIRMATION:
+        messages.info(
+            request,
+            f"This upload is no longer waiting to be processed (current status: "
+            f"{batch.get_split_status_display()}).",
+        )
+        return redirect("studies:upload_status", batch_id=batch.id)
+
+    corpus_ids = list(batch.detected_corpora.filter(included=True).values_list("id", flat=True))
+    if not corpus_ids:
+        corpus_ids = list(batch.detected_corpora.values_list("id", flat=True))
+    try:
+        confirm_detected_corpora(batch, confirmed_by=request.user, corpus_ids=corpus_ids)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+    else:
+        count = len(corpus_ids)
+        messages.success(
+            request,
+            f"Processing started for {count} stud{'y' if count == 1 else 'ies'}. "
+            "You can read the extracted text any time from the study's page.",
+        )
+    return redirect("studies:upload_status", batch_id=batch.id)
+
+
+@login_required
 def retry_detection_view(request, batch_id: int):
     """POST-only. Available to the upload's owner and staff on a batch
     currently `FAILED` — retries corpus detection from scratch, up to

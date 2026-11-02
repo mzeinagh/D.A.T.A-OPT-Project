@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load display %}
 {% block title %}{{ batch.original_filename }} — D.A.T.A{% endblock %}
 {% block head %}
     {% if auto_refresh_seconds %}<meta http-equiv="refresh" content="{{ auto_refresh_seconds }}">{% endif %}
@@ -8,7 +9,7 @@
         <div>
             <div class="breadcrumb"><a href="{% url 'studies:study_list' %}">Studies</a> › Upload</div>
             <h1>{{ batch.original_filename }}</h1>
-            <p class="sub">Uploaded {{ batch.uploaded_at }} by {{ batch.uploaded_by }}</p>
+            <p class="sub">Uploaded {{ batch.uploaded_at|when }} by {{ batch.uploaded_by|display_name }}</p>
         </div>
         <a class="btn" href="{% url 'studies:upload' %}">Upload another PDF</a>
     </div>
@@ -41,7 +42,7 @@
                             {% for entry in batch.detection_failure_history %}
                                 <tr>
                                     <td>{{ entry.retry_number }}</td>
-                                    <td>{{ entry.occurred_at }}</td>
+                                    <td>{{ entry.occurred_at|when }}</td>
                                     <td>{{ entry.error_message }}</td>
                                 </tr>
                             {% endfor %}
@@ -78,14 +79,22 @@
 
     {% if awaiting_review %}
         <div class="notice notice-warn">
-            <strong>This upload needs review before the questions are asked.</strong>
+            <strong>Ready to process.</strong>
             {% if detected_corpora.count > 1 %}
-                <p>{{ detected_corpora.count }} possible studies or assessments were found in this
-                   document. Choose which ones to process before the AI model is asked any questions.</p>
+                <p>{{ detected_corpora.count }} possible studies or assessments were found in this document.
+                   Processing now asks the questions about all of them. To choose which ones to include
+                   or rename them, review first.</p>
             {% else %}
-                <p>You asked to review this document before processing. Confirm to continue.</p>
+                <p>The text has been extracted. Reviewing it before the AI model is asked any questions is optional,
+                   and you can still read it later from the study's page.</p>
             {% endif %}
-            <p><a class="btn btn-primary" href="{% url 'studies:review' batch.id %}">Review and confirm</a></p>
+            <div class="actions">
+                <form method="post" action="{% url 'studies:process_now' batch.id %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn-primary">Process now</button>
+                </form>
+                <a class="btn" href="{% url 'studies:review' batch.id %}">Review the extracted text first</a>
+            </div>
         </div>
 
         <div class="card card-flush">
@@ -119,7 +128,10 @@
                 <tbody>
                     {% for study in studies %}
                         <tr>
-                            <td><a href="{% url 'studies:study_detail' study.id %}">{{ study.label|default:"(whole document)" }}</a></td>
+                            <td>
+                                <a href="{% url 'studies:study_detail' study.id %}">{{ study.label|default:"(whole document)" }}</a>
+                                <div class="small"><a href="{% url 'studies:study_document' study.id %}">Extracted text</a></div>
+                            </td>
                             <td>{{ study.assessment_category|default:"—" }}</td>
                             <td><span class="status-pill status-{{ study.status }}">{{ study.get_status_display }}</span></td>
                             <td>

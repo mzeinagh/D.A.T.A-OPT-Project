@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load display %}
 {% load money %}
 {% block title %}{{ study.label|default:"Study" }} — D.A.T.A{% endblock %}
 {% block content %}
@@ -40,8 +41,8 @@
                         <tr>
                             <td><a href="{% url 'studies:run_detail' study.id run.id %}">Run {{ run.run_number }}</a></td>
                             <td><span class="status-pill status-{{ run.status }}">{{ run.get_status_display }}</span></td>
-                            <td>{{ run.started_at }}</td>
-                            <td>{{ run.finished_at|default:"—" }}</td>
+                            <td>{{ run.started_at|when }}</td>
+                            <td>{{ run.finished_at|when }}</td>
                             <td class="num">{{ run.total_api_calls }}</td>
                             <td class="num">{{ run.total_input_tokens }} / {{ run.total_output_tokens }}</td>
                             <td class="num">{{ run.estimated_cost_usd|cost }}</td>

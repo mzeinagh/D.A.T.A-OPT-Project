@@ -122,7 +122,9 @@ LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/accounts/login/"
 
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "UTC"
+# Times are stored in UTC (USE_TZ) and shown in Ottawa time. A named zone,
+# not a fixed offset, so the switch between EST and EDT happens by itself.
+TIME_ZONE = env("DJANGO_TIME_ZONE", "America/Toronto")
 USE_I18N = True
 USE_TZ = True
 
@@ -146,7 +148,8 @@ CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
-CELERY_TIMEZONE = TIME_ZONE
+# Celery keeps UTC: it only matters for scheduled tasks, and there are none.
+CELERY_TIMEZONE = "UTC"
 
 # ---------------------------------------------------------------- core_pipeline
 # Filesystem/model paths the old config.py hardcoded per-machine. None of

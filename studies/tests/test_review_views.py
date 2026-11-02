@@ -171,8 +171,9 @@ class TestReviewDisplaysRequiredFields:
         assert "1, 3" in content or "1-3" in content or tox.page_range_display in content
         # Shared vs specific pages
         assert tox.shared_page_range_display in content
-        # Preview
-        assert "Toxicity preview text." in content
+        # The extracted text can be checked, page by page (the separate
+        # "start of the text" preview was removed at the user's request)
+        assert "Check the extracted text (1 page)" in content
         # Detection type (human-readable)
         assert tox.get_detection_type_display() in content
         # Warnings
@@ -427,3 +428,61 @@ class TestStaleUploadHandling:
 
         assert resp.status_code == 302
         assert Study.objects.filter(batch=batch).count() == 0
+
+
+
+class TestProcessNowSkipsReview:
+    """Reviewing is optional: "Process now" confirms every detected study
+    still marked to be included, the same as confirming with no changes."""
+
+    def test_process_now_confirms_all_included(self, client, alice, awaiting_batch, one_question):
+        batch, tox, residue = awaiting_batch
+        client.login(username="alice", password="pw12345")
+
+        with patch("studies.tasks.run_pipeline_task.delay") as mock_delay:
+            resp = client.post(reverse("studies:process_now", kwargs={"batch_id": batch.id}))
+
+        assert resp.status_code == 302
+        batch.refresh_from_db()
+        assert batch.split_status == UploadBatch.SplitStatus.CONFIRMED
+        assert Study.objects.filter(batch=batch).count() == 2
+        assert mock_delay.call_count == 2
+
+    def test_get_does_nothing(self, client, alice, awaiting_batch):
+        batch, _, _ = awaiting_batch
+        client.login(username="alice", password="pw12345")
+
+        resp = client.get(reverse("studies:process_now", kwargs={"batch_id": batch.id}))
+
+        assert resp.status_code == 302
+        batch.refresh_from_db()
+        assert batch.split_status == UploadBatch.SplitStatus.AWAITING_CONFIRMATION
+
+    def test_other_user_is_refused(self, client, bob, awaiting_batch):
+        batch, _, _ = awaiting_batch
+        client.login(username="bob", password="pw12345")
+
+        resp = client.post(reverse("studies:process_now", kwargs={"batch_id": batch.id}))
+
+        assert resp.status_code == 403
+        batch.refresh_from_db()
+        assert batch.split_status == UploadBatch.SplitStatus.AWAITING_CONFIRMATION
+
+    def test_already_confirmed_is_not_processed_twice(self, client, alice, awaiting_batch, one_question):
+        batch, _, _ = awaiting_batch
+        client.login(username="alice", password="pw12345")
+        with patch("studies.tasks.run_pipeline_task.delay"):
+            client.post(reverse("studies:process_now", kwargs={"batch_id": batch.id}))
+            client.post(reverse("studies:process_now", kwargs={"batch_id": batch.id}))
+
+        assert Study.objects.filter(batch=batch).count() == 2
+
+    def test_review_page_offers_skip(self, client, alice, awaiting_batch):
+        batch, _, _ = awaiting_batch
+        client.login(username="alice", password="pw12345")
+
+        resp = client.get(reverse("studies:review", kwargs={"batch_id": batch.id}))
+
+        html = resp.content.decode()
+        assert "Skip the review and process now" in html
+        assert "Start of the extracted text" not in html
