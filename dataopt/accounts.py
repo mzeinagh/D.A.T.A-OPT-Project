@@ -15,17 +15,10 @@ from django.shortcuts import redirect, render
 class SignUpForm(UserCreationForm):
     first_name = forms.CharField(max_length=150)
     last_name = forms.CharField(max_length=150)
-    email = forms.EmailField()
 
     class Meta(UserCreationForm.Meta):
         model = get_user_model()
-        fields = ("first_name", "last_name", "email", "username")
-
-    def clean_email(self):
-        email = self.cleaned_data["email"].strip()
-        if get_user_model().objects.filter(email__iexact=email).exists():
-            raise forms.ValidationError("An account with this email already exists. Try logging in instead.")
-        return email
+        fields = ("first_name", "last_name", "username")
 
 
 def signup_view(request):

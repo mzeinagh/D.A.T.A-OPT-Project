@@ -10,7 +10,6 @@ pytestmark = pytest.mark.django_db
 GOOD = {
     "first_name": "Sam",
     "last_name": "Lee",
-    "email": "sam.lee@example.org",
     "username": "slee",
     "password1": "Tox-study-2026!",
     "password2": "Tox-study-2026!",
@@ -23,7 +22,7 @@ def test_signup_creates_account_signs_in_and_lands_on_studies(client):
     assert resp.status_code == 302
     assert resp.url == reverse("studies:study_list")
     user = User.objects.get(username="slee")
-    assert (user.first_name, user.last_name, user.email) == ("Sam", "Lee", "sam.lee@example.org")
+    assert (user.first_name, user.last_name) == ("Sam", "Lee")
     assert not user.is_staff and not user.is_superuser
     assert client.get(reverse("studies:study_list")).status_code == 200
 
@@ -36,15 +35,17 @@ def test_mismatched_or_weak_passwords_are_rejected(client):
     assert not User.objects.filter(username="slee").exists()
 
 
-def test_duplicate_username_or_email_is_rejected(client):
-    User.objects.create_user(username="slee", email="other@example.org", password="x")
-    User.objects.create_user(username="other", email="sam.lee@example.org", password="x")
+def test_duplicate_username_is_rejected(client):
+    User.objects.create_user(username="slee", password="x")
 
     resp = client.post(reverse("signup"), GOOD)
-    html = resp.content.decode()
     assert resp.status_code == 200
-    assert "already exists" in html
-    assert User.objects.count() == 2
+    assert "already exists" in resp.content.decode()
+    assert User.objects.count() == 1
+
+
+def test_form_has_no_email_field(client):
+    assert 'name="email"' not in client.get(reverse("signup")).content.decode()
 
 
 def test_signed_in_user_is_sent_to_studies(client):
