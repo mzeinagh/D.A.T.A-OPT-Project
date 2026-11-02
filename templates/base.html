@@ -14,7 +14,7 @@
             {% if user.is_authenticated %}
                 {% with current=request.resolver_match.url_name %}
                 <nav class="nav" aria-label="Main">
-                    <a href="{% url 'studies:study_list' %}" {% if current != 'upload' %}class="active"{% endif %}>Studies</a>
+                    <a href="{% url 'studies:study_list' %}" {% if current != 'upload' and current != 'home' %}class="active"{% endif %}>Studies</a>
                     <a href="{% url 'studies:upload' %}" {% if current == 'upload' %}class="active"{% endif %}>Upload</a>
                 </nav>
                 {% endwith %}

@@ -115,7 +115,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # Every study/run/answer/download/status view requires sign-in; anonymous
 # requests are redirected to the login page rather than shown a 403.
 LOGIN_URL = "/accounts/login/"
-LOGIN_REDIRECT_URL = "/"
+LOGIN_REDIRECT_URL = "/studies/"
 # Without this, LogoutView renders registration/logged_out.html, which only
 # django.contrib.admin ships — so logging out of the app landed on an
 # admin-styled page. Send people back to our own login page instead.
