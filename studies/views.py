@@ -58,8 +58,14 @@ def _progress_steps(batch: UploadBatch, runs: list) -> list[dict]:
     else:
         find_state = "done"
 
+    review_label = "Your review"
     if batch.split_status == split.AWAITING_CONFIRMATION:
         review_state = "attention"
+    elif batch.split_status == split.CONFIRMED and not batch.split_requested and batch.detected_corpora.count() <= 1:
+        # One study found and the split box unticked: the app confirmed it by
+        # itself, so nobody reviewed anything. Say so instead of a green tick.
+        review_state = "skipped"
+        review_label = "Review: not needed"
     elif batch.split_status == split.CONFIRMED:
         review_state = "done"
     elif batch.split_status == split.CANCELLED:
@@ -79,7 +85,7 @@ def _progress_steps(batch: UploadBatch, runs: list) -> list[dict]:
     return [
         {"label": "Uploaded", "state": "done"},
         {"label": "Finding studies", "state": find_state},
-        {"label": "Your review", "state": review_state},
+        {"label": review_label, "state": review_state},
         {"label": "Asking the questions", "state": ask_state},
         {"label": "Results ready", "state": "done" if completed and not active else "todo"},
     ]

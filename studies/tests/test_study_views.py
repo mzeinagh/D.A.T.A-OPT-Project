@@ -326,9 +326,17 @@ class TestProgressStepsAndPageChips:
         run.status = "running"
         run.save(update_fields=["status"])
         steps = self._steps(client, study.batch)
-        assert steps["Your review"] == "done"
+        assert steps["Review: not needed"] == "skipped"
+        assert "Your review" not in steps
         assert steps["Asking the questions"] == "current"
         assert steps["Results ready"] == "todo"
+
+    def test_review_shows_done_when_the_split_box_was_ticked(self, client, study_with_run):
+        study, _, _ = study_with_run
+        study.batch.split_requested = True
+        study.batch.save(update_fields=["split_requested"])
+        steps = self._steps(client, study.batch)
+        assert steps["Your review"] == "done"
 
     def test_steps_when_run_completed(self, client, study_with_run):
         study, _, _ = study_with_run

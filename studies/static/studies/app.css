@@ -121,6 +121,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .steps li.attention { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
 .steps li.attention::before { content: "!"; background: var(--warn); color: #fff; }
 .steps li.failed { color: var(--bad); border-color: var(--bad); background: var(--bad-soft); }
+.steps li.skipped { color: var(--muted); border-style: dashed; background: var(--bg); }
+.steps li.skipped::before { content: "\2013"; }
 .steps li.failed::before { content: "\00d7"; background: var(--bad); color: #fff; }
 
 /* ---------- summary tiles */
