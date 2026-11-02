@@ -22,8 +22,9 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.http import HttpResponse
+from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 
 from .corpus_detection import (
     RetryLimitExceededError,
@@ -403,8 +404,52 @@ def study_document_view(request, study_id: int):
     return render(
         request,
         "studies/document.html",
-        {"study": study, "pages": study.pages.all(), "latest_run": latest_run},
+        {
+            "study": study,
+            "pages": study.pages.all(),
+            "latest_run": latest_run,
+            "pdf_available": _uploaded_pdf_exists(study.batch),
+        },
     )
+
+
+def _uploaded_pdf_exists(batch: UploadBatch) -> bool:
+    if not batch.uploaded_file:
+        return False
+    try:
+        return batch.uploaded_file.storage.exists(batch.uploaded_file.name)
+    except Exception:  # storage unreachable: just don't offer the PDF
+        return False
+
+
+@login_required
+@xframe_options_sameorigin
+def study_pdf_view(request, study_id: int):
+    """Sends the study's original uploaded PDF to the browser so it can be
+    shown beside the extracted text. Read-only, same access rule as every
+    other study page (owner or staff). Allowed inside a frame on this site
+    only, for the side-by-side view.
+    """
+    study = get_object_or_404(Study.objects.select_related("batch"), pk=study_id)
+    if not _can_access_study(request.user, study):
+        raise PermissionDenied("You don't have access to this study.")
+    if not _uploaded_pdf_exists(study.batch):
+        raise Http404("The original PDF for this study is not available.")
+
+    filename = _safe_filename(study.batch.original_filename or "study")
+    if not filename.lower().endswith(".pdf"):
+        filename += ".pdf"
+    response = FileResponse(
+        study.batch.uploaded_file.open("rb"),
+        content_type="application/pdf",
+        as_attachment=False,
+        filename=filename,
+    )
+    # Lets the browser reuse the file when the viewer jumps between pages,
+    # without letting any shared cache keep it.
+    response["Cache-Control"] = "private, max-age=3600"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 # ==================================================================== export

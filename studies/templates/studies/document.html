@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% load static page_text %}
 {% block title %}Extracted text — {{ study.label|default:"Study" }} — D.A.T.A{% endblock %}
+{% block page_class %}page-wide{% endblock %}
 {% block content %}
     <div class="page-head">
         <div>
@@ -12,15 +13,36 @@
             <p class="sub">What the app read from <strong>{{ study.batch.original_filename }}</strong>, page by page.
                "Clean" is the text the AI model received; "Raw" is the text taken straight from the PDF.</p>
         </div>
-        {% if latest_run %}
-            <a class="btn" href="{% url 'studies:run_detail' study.id latest_run.id %}">Back to the answers</a>
-        {% endif %}
+        <div class="actions">
+            {% if pdf_available %}
+                <button type="button" class="btn" data-pdf-toggle aria-pressed="false" hidden>Show the PDF beside the text</button>
+            {% endif %}
+            {% if latest_run %}
+                <a class="btn" href="{% url 'studies:run_detail' study.id latest_run.id %}">Back to the answers</a>
+            {% endif %}
+        </div>
     </div>
 
     {% with pages_list=pages|page_views %}
         {% if pages_list %}
-            {% question_keywords as keywords %}
-            {% include "studies/_page_text.html" with pages=pages_list id_prefix="" keywords=keywords %}
+            <div class="doc-layout" data-doc-layout{% if pdf_available %} data-pdf-url="{% url 'studies:study_pdf' study.id %}"{% endif %}>
+                {% if pdf_available %}
+                    <aside class="pdf-pane" data-pdf-pane hidden aria-label="Original PDF">
+                        <div class="pdf-bar">
+                            <button type="button" data-pdf-prev aria-label="Previous page">‹</button>
+                            <span>Page <strong data-pdf-page>{{ pages_list.0.number }}</strong></span>
+                            <button type="button" data-pdf-next aria-label="Next page">›</button>
+                            <span class="muted small pdf-hint">Opening a page in the text moves the PDF to it.</span>
+                            <a class="small" href="{% url 'studies:study_pdf' study.id %}" target="_blank" rel="noopener">Open in a new tab</a>
+                        </div>
+                        <iframe data-pdf-frame title="Original PDF" src="about:blank"></iframe>
+                    </aside>
+                {% endif %}
+                <section class="text-pane">
+                    {% question_keywords as keywords %}
+                    {% include "studies/_page_text.html" with pages=pages_list id_prefix="" keywords=keywords %}
+                </section>
+            </div>
         {% else %}
             <div class="card"><p class="muted">No page text was saved for this study.</p></div>
         {% endif %}

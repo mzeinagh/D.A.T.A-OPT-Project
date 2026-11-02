@@ -441,3 +441,48 @@ class TestStudyDocumentPage:
         html = resp.content.decode()
         assert "END-OF-PAGE-MARKER" in html
         assert "Check the extracted text (1 page)" in html
+
+
+class TestStudyPdf:
+    """The original PDF, shown beside the extracted text: read-only, owner
+    or staff only, and allowed in a frame on this site only."""
+
+    def _url(self, study):
+        return reverse("studies:study_pdf", kwargs={"study_id": study.id})
+
+    def test_owner_gets_the_pdf_inline(self, client, study_with_run):
+        study, _, _ = study_with_run
+        client.login(username="alice", password="pw12345")
+
+        resp = client.get(self._url(study))
+
+        assert resp.status_code == 200
+        assert resp["Content-Type"] == "application/pdf"
+        assert resp["Content-Disposition"].startswith("inline")
+        assert resp["X-Frame-Options"] == "SAMEORIGIN"
+        assert b"".join(resp.streaming_content).startswith(b"%PDF")
+
+    def test_other_user_is_refused(self, client, study_with_run, bob):
+        study, _, _ = study_with_run
+        client.login(username="bob", password="pw12345")
+
+        assert client.get(self._url(study)).status_code == 403
+
+    def test_missing_file_is_404_and_not_offered(self, client, study_with_run):
+        study, _, _ = study_with_run
+        StudyPage.objects.create(study=study, page_number=1, final_text="text")
+        study.batch.uploaded_file.storage.delete(study.batch.uploaded_file.name)
+        client.login(username="alice", password="pw12345")
+
+        assert client.get(self._url(study)).status_code == 404
+        resp = client.get(reverse("studies:study_document", kwargs={"study_id": study.id}))
+        assert self._url(study) not in resp.content.decode()
+
+    def test_document_page_offers_the_pdf(self, client, study_with_run):
+        study, _, _ = study_with_run
+        StudyPage.objects.create(study=study, page_number=1, final_text="text")
+        client.login(username="alice", password="pw12345")
+
+        resp = client.get(reverse("studies:study_document", kwargs={"study_id": study.id}))
+
+        assert f'data-pdf-url="{self._url(study)}"' in resp.content.decode()

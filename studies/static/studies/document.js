@@ -160,7 +160,9 @@
             if (current >= 0 && visible[current]) visible[current].classList.remove("current");
             current = (current + step + visible.length) % visible.length;
             var target = visible[current];
-            target.closest("details").open = true;
+            var sec = target.closest("details");
+            sec.open = true;
+            focusPage(sec);
             target.classList.add("current");
             target.scrollIntoView({ block: "center" });
             countEl.textContent = (current + 1) + " of " + visible.length;
@@ -190,7 +192,19 @@
             items.forEach(function (li) { li.querySelector("details").open = false; });
         });
 
+        reader.addEventListener("click", function (e) {
+            var summary = e.target.closest(".page-sec > summary");
+            if (!summary) return;
+            var sec = summary.parentElement;
+            setTimeout(function () { if (sec.open) focusPage(sec); }, 0);
+        });
+
         apply();
+    }
+
+    // Tells the PDF pane (if any) which page the reader is looking at.
+    function focusPage(sec) {
+        sec.dispatchEvent(new CustomEvent("reader:page", { bubbles: true, detail: { page: sec.dataset.pageNumber } }));
     }
 
     function openFromHash() {
@@ -200,10 +214,69 @@
             el.open = true;
             el.classList.add("flash");
             el.scrollIntoView({ block: "start" });
+            focusPage(el);
         }
     }
 
+    // The original PDF beside the text, in the browser's own PDF viewer.
+    // The viewer can't report which page it shows, so the text leads:
+    // opening a page in the text (or a search match, or a link to #page-N)
+    // moves the PDF to that page.
+    function initPdfPane(layout) {
+        var url = layout.dataset.pdfUrl;
+        var pane = layout.querySelector("[data-pdf-pane]");
+        var toggle = document.querySelector("[data-pdf-toggle]");
+        if (!url || !pane || !toggle) return;
+        var frame = pane.querySelector("[data-pdf-frame]");
+        var label = pane.querySelector("[data-pdf-page]");
+        var sections = Array.prototype.slice.call(layout.querySelectorAll("[data-page-number]"));
+        var numbers = sections.map(function (s) { return parseInt(s.dataset.pageNumber, 10); }).filter(function (n) { return !isNaN(n); });
+        var page = numbers.length ? numbers[0] : 1;
+        var on = false;
+
+        function show(n) {
+            page = n;
+            label.textContent = n;
+            sections.forEach(function (s) { s.classList.toggle("in-pdf", on && parseInt(s.dataset.pageNumber, 10) === n); });
+            // The query string makes the viewer reload at the new page; the
+            // file itself comes from the browser's cache.
+            if (on) frame.src = url + "?p=" + n + "#page=" + n + "&navpanes=0&view=FitH";
+        }
+
+        function setOn(value) {
+            on = value;
+            layout.classList.toggle("split", on);
+            pane.hidden = !on;
+            toggle.setAttribute("aria-pressed", String(on));
+            toggle.textContent = on ? "Hide the PDF" : "Show the PDF beside the text";
+            try { localStorage.setItem("dataopt.showPdf", on ? "1" : "0"); } catch (e) { /* not available */ }
+            if (on) show(page); else frame.src = "about:blank";
+        }
+
+        function step(delta) {
+            var i = numbers.indexOf(page);
+            var next = numbers[Math.min(Math.max((i < 0 ? 0 : i) + delta, 0), numbers.length - 1)];
+            var sec = sections[numbers.indexOf(next)];
+            if (sec) { sec.open = true; sec.scrollIntoView({ block: "start" }); }
+            show(next);
+        }
+
+        layout.addEventListener("reader:page", function (e) {
+            var n = parseInt(e.detail.page, 10);
+            if (!isNaN(n)) show(n);
+        });
+        pane.querySelector("[data-pdf-prev]").addEventListener("click", function () { step(-1); });
+        pane.querySelector("[data-pdf-next]").addEventListener("click", function () { step(1); });
+        toggle.addEventListener("click", function () { setOn(!on); });
+        toggle.hidden = false;
+
+        var saved = null;
+        try { saved = localStorage.getItem("dataopt.showPdf"); } catch (e) { saved = null; }
+        setOn(saved === null ? window.innerWidth >= 1000 : saved === "1");
+    }
+
     document.querySelectorAll("[data-reader]").forEach(initReader);
+    document.querySelectorAll("[data-doc-layout]").forEach(initPdfPane);
     openFromHash();
     window.addEventListener("hashchange", openFromHash);
 })();

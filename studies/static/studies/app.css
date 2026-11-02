@@ -18,6 +18,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 15px; line-height: 1.55; }
 a { color: var(--accent); }
@@ -215,3 +216,17 @@ mark.kw { background: #e6e1f7; color: inherit; border-radius: 2px; padding: 0 1p
 .chip-warn { background: var(--warn-soft); color: var(--warn); }
 a.chip { text-decoration: none; }
 a.chip:hover { background: var(--accent); color: #fff; }
+
+/* ---------- PDF beside the text (document page) */
+.page-wide { max-width: 1600px; }
+.doc-layout.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+.pdf-pane { position: sticky; top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; height: calc(100vh - 2rem); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.6rem; }
+.pdf-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.9rem; }
+.pdf-bar button { padding: 0.3rem 0.65rem; }
+.pdf-bar .pdf-hint { flex: 1; }
+.pdf-pane iframe { flex: 1; width: 100%; border: 1px solid var(--line); border-radius: 6px; background: #e9ebee; }
+.page-sec.in-pdf > summary .page-title::after { content: "shown in PDF"; margin-left: 0.5rem; font-size: 0.72rem; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: 0.05rem 0.4rem; border-radius: 4px; }
+@media (max-width: 1000px) {
+    .doc-layout.split { grid-template-columns: 1fr; }
+    .pdf-pane { position: static; height: 70vh; }
+}

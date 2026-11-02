@@ -40,7 +40,7 @@ shows as plain text in each section.
     <ol class="page-list">
         {% for p in pages %}
             <li data-page-item data-ocr="{% if p.method == 'ocr' %}1{% endif %}" data-table="{% if p.is_table %}1{% endif %}">
-                <details class="page-sec" id="{{ id_prefix }}page-{{ p.number }}" data-page>
+                <details class="page-sec" id="{{ id_prefix }}page-{{ p.number }}" data-page data-page-number="{{ p.number }}">
                     <summary>
                         <span class="page-title">Page {{ p.number }}</span>
                         {% if p.method == "ocr" %}<span class="chip chip-warn" title="This page was read from an image (OCR). Check it against the PDF.">OCR</span>{% elif p.method == "fallback_text" %}<span class="chip chip-warn" title="OCR failed on this page, so the plain PDF text was used.">OCR failed</span>{% endif %}
