@@ -1,13 +1,24 @@
 {% extends "base.html" %}
 {% block title %}Review — {{ batch.original_filename }} — D.A.T.A{% endblock %}
 {% block content %}
-    <h1>Review detected corpora</h1>
-    <p><strong>{{ batch.original_filename }}</strong> — {{ formset.forms|length }} possible
-       {% if formset.forms|length == 1 %}study/assessment{% else %}studies/assessments{% endif %}
-       detected. Nothing has been sent to GPT-5 yet. Review each one below, then confirm.</p>
+    <div class="page-head">
+        <div>
+            <div class="breadcrumb">
+                <a href="{% url 'studies:study_list' %}">Studies</a> ›
+                <a href="{% url 'studies:upload_status' batch.id %}">{{ batch.original_filename }}</a> › Review
+            </div>
+            <h1>Review the studies found in this PDF</h1>
+            <p class="sub">{{ formset.forms|length }} possible
+               {% if formset.forms|length == 1 %}study or assessment was{% else %}studies or assessments were{% endif %}
+               found in <strong>{{ batch.original_filename }}</strong>. Nothing has been sent to the AI model yet.
+               Check each one below, then confirm.</p>
+        </div>
+    </div>
 
     {% if formset.non_form_errors %}
-        <ul class="errorlist">{% for e in formset.non_form_errors %}<li>{{ e }}</li>{% endfor %}</ul>
+        <div class="notice notice-bad">
+            <ul class="errorlist">{% for e in formset.non_form_errors %}<li>{{ e }}</li>{% endfor %}</ul>
+        </div>
     {% endif %}
 
     <form method="post">
@@ -16,25 +27,26 @@
 
         {% for form in formset %}
             {% with corpus=form.instance %}
-            <fieldset style="margin-bottom:1.5rem;border:1px solid #ddd;border-radius:6px;padding:1rem;">
+            <fieldset class="corpus-card">
+                <legend>Study {{ forloop.counter }}</legend>
                 {{ form.id }}
                 <div class="field">
-                    <label>
+                    <label class="check">
                         {{ form.included }}
-                        Include this corpus
+                        <span>Include this study</span>
                     </label>
                 </div>
 
                 <div class="field">
-                    <label for="{{ form.title.id_for_label }}">Proposed title</label>
+                    <label for="{{ form.title.id_for_label }}">Title</label>
                     {{ form.title }}
                     {% if form.title.errors %}
                         <ul class="errorlist">{% for e in form.title.errors %}<li>{{ e }}</li>{% endfor %}</ul>
                     {% endif %}
                 </div>
 
-                <table>
-                    <tr><th>Detection type</th><td>{{ corpus.get_detection_type_display }}</td></tr>
+                <table class="kv">
+                    <tr><th>How it was found</th><td>{{ corpus.get_detection_type_display }}</td></tr>
                     <tr><th>Category</th><td>{{ corpus.assessment_category|default:"—" }}</td></tr>
                     <tr><th>Pages</th><td>{{ corpus.page_range_display|default:"—" }}</td></tr>
                     <tr><th>Shared pages</th><td>{{ corpus.shared_page_range_display|default:"(none)" }}</td></tr>
@@ -42,26 +54,26 @@
                 </table>
 
                 {% if corpus.detection_warnings %}
-                    <div class="notice">
-                        <strong>Detection warnings</strong>
+                    <div class="notice notice-warn" style="margin-top:1rem;">
+                        <strong>Things to check</strong>
                         <ul>{% for w in corpus.detection_warnings %}<li>{{ w }}</li>{% endfor %}</ul>
                     </div>
                 {% endif %}
 
                 {% if corpus.preview_text %}
-                    <details>
-                        <summary>Preview extracted text</summary>
-                        <p style="white-space:pre-wrap;font-size:0.85rem;color:#333;">{{ corpus.preview_text }}</p>
+                    <details style="margin-top:1rem;">
+                        <summary>Preview the extracted text (first part only)</summary>
+                        <div class="preview">{{ corpus.preview_text }}</div>
                     </details>
                 {% endif %}
             </fieldset>
             {% endwith %}
         {% endfor %}
 
-        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
-            <button type="submit" name="action" value="confirm">Confirm selected corpora</button>
-            <button type="submit" name="action" value="process_as_single">Process original PDF as one corpus instead</button>
-            <button type="submit" name="action" value="cancel">Cancel</button>
+        <div class="actions">
+            <button type="submit" name="action" value="confirm" class="btn-primary">Confirm and ask the questions</button>
+            <button type="submit" name="action" value="process_as_single">Process the whole PDF as one study instead</button>
+            <button type="submit" name="action" value="cancel" class="btn-quiet btn-danger">Cancel</button>
         </div>
     </form>
 {% endblock %}

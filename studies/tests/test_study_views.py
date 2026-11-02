@@ -288,3 +288,74 @@ class TestUploadStatusLinksAndRefresh:
         resp = self._get_status_page(client, batch)
 
         assert self.REFRESH_TAG not in resp.content
+
+
+class TestProgressStepsAndPageChips:
+    """The upload page shows where an upload is in its life, and each
+    answer on the results page shows the pages it was based on."""
+
+    def _steps(self, client, batch):
+        client.login(username="alice", password="pw12345")
+        resp = client.get(reverse("studies:upload_status", kwargs={"batch_id": batch.id}))
+        return {step["label"]: step["state"] for step in resp.context["progress_steps"]}
+
+    def _batch(self, alice, split_status):
+        upload = SimpleUploadedFile("study.pdf", b"%PDF-1.4 fake", content_type="application/pdf")
+        return UploadBatch.objects.create(
+            uploaded_file=upload, original_filename="study.pdf", uploaded_by=alice, split_status=split_status
+        )
+
+    def test_steps_while_detecting(self, client, alice):
+        steps = self._steps(client, self._batch(alice, UploadBatch.SplitStatus.DETECTING))
+        assert steps["Uploaded"] == "done"
+        assert steps["Finding studies"] == "current"
+        assert steps["Your review"] == "todo"
+
+    def test_steps_waiting_for_review(self, client, alice):
+        steps = self._steps(client, self._batch(alice, UploadBatch.SplitStatus.AWAITING_CONFIRMATION))
+        assert steps["Finding studies"] == "done"
+        assert steps["Your review"] == "attention"
+        assert steps["Asking the questions"] == "todo"
+
+    def test_steps_when_detection_failed(self, client, alice):
+        steps = self._steps(client, self._batch(alice, UploadBatch.SplitStatus.FAILED))
+        assert steps["Finding studies"] == "failed"
+
+    def test_steps_while_run_is_running(self, client, study_with_run):
+        study, run, _ = study_with_run
+        run.status = "running"
+        run.save(update_fields=["status"])
+        steps = self._steps(client, study.batch)
+        assert steps["Your review"] == "done"
+        assert steps["Asking the questions"] == "current"
+        assert steps["Results ready"] == "todo"
+
+    def test_steps_when_run_completed(self, client, study_with_run):
+        study, _, _ = study_with_run
+        steps = self._steps(client, study.batch)
+        assert steps["Asking the questions"] == "done"
+        assert steps["Results ready"] == "done"
+
+    def test_answer_shows_source_pages(self, client, study_with_run):
+        study, run, answer = study_with_run
+        answer.retrieved_page_refs = [
+            {"page_num": 7, "study_page_id": 2},
+            {"page_num": 4, "study_page_id": 1},
+            {"page_num": 4, "study_page_id": 1},
+            {"page_num": "1+2"},
+        ]
+        answer.save(update_fields=["retrieved_page_refs"])
+        client.login(username="alice", password="pw12345")
+
+        resp = client.get(reverse("studies:run_detail", kwargs={"study_id": study.id, "run_id": run.id}))
+
+        assert resp.context["answers"][0].page_labels == ["4", "7", "1, 2"]
+        assert "p. 4" in resp.content.decode()
+
+    def test_answer_without_pages_says_so(self, client, study_with_run):
+        study, run, _ = study_with_run
+        client.login(username="alice", password="pw12345")
+
+        resp = client.get(reverse("studies:run_detail", kwargs={"study_id": study.id, "run_id": run.id}))
+
+        assert "No source pages recorded" in resp.content.decode()

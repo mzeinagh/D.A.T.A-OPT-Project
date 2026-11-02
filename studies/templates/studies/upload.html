@@ -1,12 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Upload a study — D.A.T.A{% endblock %}
+{% block page_class %}page-narrow{% endblock %}
 {% block content %}
-    <h1>Upload a study</h1>
-    <p>Upload a toxicology study PDF. It will be processed automatically; if it looks
-       like it may contain more than one study or assessment, you'll be asked to
-       confirm before any GPT-5 processing begins.</p>
+    <div class="page-head">
+        <div>
+            <div class="breadcrumb"><a href="{% url 'studies:study_list' %}">Studies</a> › Upload</div>
+            <h1>Upload a study</h1>
+            <p class="sub">Upload a toxicology study PDF. The app reads the text, finds the studies in it,
+               and asks the AI model the standard questions. If the PDF may contain more than one study
+               or assessment, you'll be asked to confirm before any questions are asked.</p>
+        </div>
+    </div>
 
-    <form method="post" enctype="multipart/form-data">
+    <form method="post" enctype="multipart/form-data" class="card">
         {% csrf_token %}
 
         <div class="field">
@@ -18,13 +24,13 @@
         </div>
 
         <div class="field">
-            <label>
+            <label class="check">
                 {{ form.split_requested }}
-                {{ form.split_requested.label }}
+                <span>{{ form.split_requested.label }}</span>
             </label>
             <div class="help">{{ form.split_requested.help_text }}</div>
         </div>
 
-        <button type="submit">Upload</button>
+        <button type="submit" class="btn-primary">Upload</button>
     </form>
 {% endblock %}

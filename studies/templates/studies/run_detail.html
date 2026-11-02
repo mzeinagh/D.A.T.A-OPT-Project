@@ -1,58 +1,102 @@
 {% extends "base.html" %}
 {% block title %}Run {{ run.run_number }} — {{ study.label|default:"Study" }}{% endblock %}
 {% block content %}
-    <p><a href="{% url 'studies:study_detail' study.id %}">&larr; {{ study.label|default:"(whole document)" }}</a></p>
-    <h1>Run {{ run.run_number }}</h1>
-    <p>
-        Status: <span class="status-pill">{{ run.get_status_display }}</span> &middot;
-        Model: {{ run.llm_model|default:"—" }} &middot;
-        Calls: {{ run.total_api_calls }} &middot;
-        Tokens: {{ run.total_input_tokens }} in / {{ run.total_output_tokens }} out &middot;
-        Est. cost: {{ run.estimated_cost_usd|default:"—" }} USD
-    </p>
+    <div class="page-head">
+        <div>
+            <div class="breadcrumb">
+                <a href="{% url 'studies:study_list' %}">Studies</a> ›
+                <a href="{% url 'studies:study_detail' study.id %}">{{ study.label|default:"(whole document)" }}</a>
+            </div>
+            <h1>Run {{ run.run_number }} <span class="status-pill status-{{ run.status }}">{{ run.get_status_display }}</span></h1>
+            <p class="sub">AI model: {{ run.llm_model|default:"—" }}</p>
+        </div>
+        <div class="actions">
+            <a class="btn" href="{% url 'studies:export_run_answers' study.id run.id %}">Download answers (.txt)</a>
+            <a class="btn" href="{% url 'studies:export_run_full' study.id run.id %}">Download full conversation (.txt)</a>
+        </div>
+    </div>
+
+    <div class="tiles">
+        <div class="tile"><b>{{ answers|length }}</b><span>Answers</span></div>
+        <div class="tile"><b>{{ run.total_api_calls }}</b><span>AI calls{% if failed_calls %}, {{ failed_calls|length }} failed{% endif %}</span></div>
+        <div class="tile"><b>{{ run.total_input_tokens }} / {{ run.total_output_tokens }}</b><span>Tokens in / out</span></div>
+        <div class="tile">
+            {% if run.estimated_cost_usd %}
+                <b>${{ run.estimated_cost_usd|floatformat:4 }}</b><span>Estimated cost (USD)</span>
+            {% else %}
+                <b>—</b><span title="Prices for this model are not set, so the cost can't be estimated.">Cost (prices not set)</span>
+            {% endif %}
+        </div>
+    </div>
+
     {% if run.halted_due_to_cost_limit %}
-        <div class="notice">This run halted early — it reached its configured cost limit
+        <div class="notice notice-warn">This run stopped early because it reached its cost limit
             ({{ run.cost_limit_usd }} USD).</div>
     {% endif %}
     {% if run.error_message %}
-        <div class="notice"><strong>Error:</strong> {{ run.error_message }}</div>
+        <div class="notice notice-bad"><strong>Error:</strong> {{ run.error_message }}</div>
     {% endif %}
 
-    <p>
-        <a href="{% url 'studies:export_run_full' study.id run.id %}">Download full conversation (.txt)</a>
-        &middot;
-        <a href="{% url 'studies:export_run_answers' study.id run.id %}">Download answers only (.txt)</a>
-    </p>
-
     {% if failed_calls %}
-        <h2>Failed / timed-out calls</h2>
-        <table>
-            <thead><tr><th>Node</th><th>Status</th><th>Error</th><th>Retries</th></tr></thead>
-            <tbody>
-                {% for call in failed_calls %}
-                    <tr>
-                        <td>{{ call.get_node_name_display }}</td>
-                        <td>{{ call.get_status_display }}</td>
-                        <td>{{ call.error_message }}</td>
-                        <td>{{ call.retry_count }}</td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <h2>Failed or timed-out calls</h2>
+        <div class="card card-flush">
+            <table>
+                <thead><tr><th>Step</th><th>Status</th><th>Error</th><th class="num">Retries</th></tr></thead>
+                <tbody>
+                    {% for call in failed_calls %}
+                        <tr>
+                            <td>{{ call.get_node_name_display }}</td>
+                            <td><span class="status-pill status-{{ call.status }}">{{ call.get_status_display }}</span></td>
+                            <td>{{ call.error_message }}</td>
+                            <td class="num">{{ call.retry_count }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     {% endif %}
 
     <h2>Answers</h2>
     {% if not answers %}
-        <p>No answers recorded for this run yet.</p>
+        <p class="muted">No answers recorded for this run yet.</p>
     {% else %}
-        {% for answer in answers %}
-            <div class="notice" style="background:#fafafa;">
-                <p><strong>Q{{ forloop.counter }}.</strong> {{ answer.question_snapshot.text }}</p>
-                <p>{{ answer.formatted_answer|linebreaksbr }}</p>
-                {% if answer.keywords_used %}
-                    <p class="help">Keywords: {{ answer.keywords_used|join:", " }}</p>
-                {% endif %}
+        <div class="answers-layout">
+            <nav class="qnav" aria-label="Questions">
+                {% for answer in answers %}
+                    <a href="#q{{ forloop.counter }}"><b>Q{{ forloop.counter }}</b><span>{{ answer.question_snapshot.text|truncatechars:40 }}</span></a>
+                {% endfor %}
+            </nav>
+            <div class="answer-list">
+                {% for answer in answers %}
+                    <details class="answer" id="q{{ forloop.counter }}" open>
+                        <summary>
+                            <span class="qnum">Q{{ forloop.counter }}</span>
+                            <span class="qtext">{{ answer.question_snapshot.text|truncatewords:25 }}</span>
+                        </summary>
+                        <div class="abody">
+                            <div class="atext">{{ answer.formatted_answer|default:"(no answer)"|linebreaksbr }}</div>
+                            <div class="meta">
+                                {% if answer.page_labels %}
+                                    <span>Based on</span>
+                                    {% for label in answer.page_labels %}<span class="chip">p. {{ label }}</span>{% endfor %}
+                                {% else %}
+                                    <span>No source pages recorded</span>
+                                {% endif %}
+                                {% if answer.keywords_used %}
+                                    <span>· Keywords:</span>
+                                    {% for kw in answer.keywords_used %}<span class="chip chip-plain">{{ kw }}</span>{% endfor %}
+                                {% endif %}
+                            </div>
+                            <details class="trace">
+                                <summary>Show the full question, the prompt and the model's raw response</summary>
+                                <p class="small muted" style="margin:0.6rem 0 0.25rem;">Full question</p><pre>{{ answer.question_snapshot.text }}</pre>
+                                {% if answer.augmented_prompt %}<p class="small muted" style="margin:0.6rem 0 0.25rem;">Prompt sent to the AI model</p><pre>{{ answer.augmented_prompt }}</pre>{% endif %}
+                                {% if answer.raw_model_response %}<p class="small muted" style="margin:0.6rem 0 0.25rem;">Raw response</p><pre>{{ answer.raw_model_response }}</pre>{% endif %}
+                            </details>
+                        </div>
+                    </details>
+                {% endfor %}
             </div>
-        {% endfor %}
+        </div>
     {% endif %}
 {% endblock %}

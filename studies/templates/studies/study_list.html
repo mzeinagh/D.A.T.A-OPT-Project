@@ -1,34 +1,44 @@
 {% extends "base.html" %}
 {% block title %}Studies — D.A.T.A{% endblock %}
 {% block content %}
-    <h1>Studies</h1>
+    <div class="page-head">
+        <div>
+            <h1>Studies</h1>
+            <p class="sub">Every study you've uploaded and the questions answered for it.</p>
+        </div>
+        <a class="btn btn-primary" href="{% url 'studies:upload' %}">Upload a PDF</a>
+    </div>
 
     {% if not studies %}
-        <p>No studies yet. <a href="{% url 'studies:upload' %}">Upload a PDF</a> to get started.</p>
+        <div class="card">
+            <p>No studies yet. <a href="{% url 'studies:upload' %}">Upload a PDF</a> to get started.</p>
+        </div>
     {% else %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Study</th>
-                    <th>Category</th>
-                    <th>Status</th>
-                    {% if user.is_staff %}<th>Uploaded by</th>{% endif %}
-                    <th>Runs</th>
-                    <th>Created</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for study in studies %}
+        <div class="card card-flush">
+            <table>
+                <thead>
                     <tr>
-                        <td><a href="{% url 'studies:study_detail' study.id %}">{{ study.label|default:"(whole document)" }}</a></td>
-                        <td>{{ study.assessment_category|default:"—" }}</td>
-                        <td><span class="status-pill">{{ study.get_status_display }}</span></td>
-                        {% if user.is_staff %}<td>{{ study.batch.uploaded_by }}</td>{% endif %}
-                        <td>{{ study.runs.all|length }}</td>
-                        <td>{{ study.created_at }}</td>
+                        <th>Study</th>
+                        <th>Category</th>
+                        <th>Status</th>
+                        {% if user.is_staff %}<th>Uploaded by</th>{% endif %}
+                        <th class="num">Runs</th>
+                        <th>Created</th>
                     </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    {% for study in studies %}
+                        <tr>
+                            <td><a href="{% url 'studies:study_detail' study.id %}">{{ study.label|default:"(whole document)" }}</a></td>
+                            <td>{{ study.assessment_category|default:"—" }}</td>
+                            <td><span class="status-pill status-{{ study.status }}">{{ study.get_status_display }}</span></td>
+                            {% if user.is_staff %}<td>{{ study.batch.uploaded_by }}</td>{% endif %}
+                            <td class="num">{{ study.runs.all|length }}</td>
+                            <td>{{ study.created_at }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     {% endif %}
 {% endblock %}

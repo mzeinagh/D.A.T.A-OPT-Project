@@ -39,6 +39,51 @@ from .models import PipelineRun, Study, UploadBatch
 AUTO_REFRESH_SECONDS = 10
 
 
+def _progress_steps(batch: UploadBatch, runs: list) -> list[dict]:
+    """The step tracker on the upload status page: one entry per stage of
+    an upload's life, each with a `state` of done / current / attention /
+    failed / todo. Read-only: it only describes what has already happened.
+    """
+    split = UploadBatch.SplitStatus
+    detecting = batch.split_status in (split.NOT_APPLICABLE, split.DETECTING)
+    active = [r for r in runs if r.status in (PipelineRun.Status.PENDING, PipelineRun.Status.RUNNING)]
+    completed = [r for r in runs if r.status == PipelineRun.Status.COMPLETED]
+    failed = [r for r in runs if r.status in (PipelineRun.Status.FAILED, PipelineRun.Status.HALTED_COST_LIMIT)]
+
+    if detecting:
+        find_state = "current"
+    elif batch.split_status == split.FAILED:
+        find_state = "failed"
+    else:
+        find_state = "done"
+
+    if batch.split_status == split.AWAITING_CONFIRMATION:
+        review_state = "attention"
+    elif batch.split_status == split.CONFIRMED:
+        review_state = "done"
+    elif batch.split_status == split.CANCELLED:
+        review_state = "failed"
+    else:
+        review_state = "todo"
+
+    if active:
+        ask_state = "current"
+    elif completed:
+        ask_state = "done"
+    elif failed:
+        ask_state = "failed"
+    else:
+        ask_state = "todo"
+
+    return [
+        {"label": "Uploaded", "state": "done"},
+        {"label": "Finding studies", "state": find_state},
+        {"label": "Your review", "state": review_state},
+        {"label": "Asking the questions", "state": ask_state},
+        {"label": "Results ready", "state": "done" if completed and not active else "todo"},
+    ]
+
+
 def _can_access_batch(user, batch: UploadBatch) -> bool:
     return user.is_staff or batch.uploaded_by_id == user.id
 
@@ -108,10 +153,9 @@ def upload_status_view(request, batch_id: int):
         UploadBatch.SplitStatus.NOT_APPLICABLE,
         UploadBatch.SplitStatus.DETECTING,
     )
+    runs = [run for study in studies for run in study.runs.all()]
     run_in_progress = any(
-        run.status in (PipelineRun.Status.PENDING, PipelineRun.Status.RUNNING)
-        for study in studies
-        for run in study.runs.all()
+        run.status in (PipelineRun.Status.PENDING, PipelineRun.Status.RUNNING) for run in runs
     )
 
     return render(
@@ -125,6 +169,7 @@ def upload_status_view(request, batch_id: int):
             "max_retries": max_retries,
             "retry_limit_reached": batch.retry_count >= max_retries,
             "auto_refresh_seconds": AUTO_REFRESH_SECONDS if detection_in_progress or run_in_progress else None,
+            "progress_steps": _progress_steps(batch, runs),
         },
     )
 
@@ -313,7 +358,9 @@ def run_detail_view(request, study_id: int, run_id: int):
         pk=run_id,
         study=study,
     )
-    answers = run.answers.order_by("order")
+    answers = list(run.answers.order_by("order"))
+    for answer in answers:
+        answer.page_labels = _page_labels(answer.retrieved_page_refs)
     failed_calls = run.call_logs.exclude(status="success").order_by("created_at")
 
     return render(
@@ -321,6 +368,23 @@ def run_detail_view(request, study_id: int, run_id: int):
         "studies/run_detail.html",
         {"study": study, "run": run, "answers": answers, "failed_calls": failed_calls},
     )
+
+
+def _page_labels(refs) -> list[str]:
+    """The page numbers an answer was based on, as short labels for the
+    results page ("4", or "1, 2, 3" for a summary that joined pages with
+    "+"). Only reads `Answer.retrieved_page_refs`; duplicates are dropped.
+    """
+    labels = []
+    for ref in refs or []:
+        page = ref.get("page_num") if isinstance(ref, dict) else ref
+        if page in (None, ""):
+            continue
+        label = str(page).replace("+", ", ")
+        if label not in labels:
+            labels.append(label)
+    # Single page numbers in reading order; anything else keeps its place after them.
+    return sorted(labels, key=lambda l: (0, int(l)) if l.isdigit() else (1, 0))
 
 
 # ==================================================================== export
