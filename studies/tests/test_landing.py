@@ -58,4 +58,5 @@ def test_welcome_page_spells_out_the_name_and_unit(client):
 
     assert "Document-based Automated Toxicity Analyzer" in html
     assert "Environmental Assessment Unit" in html
-    assert "expanded and scaled" in html
+    assert "flexible, scalable design" in html
+    assert "Intelligent scientific document analysis" not in html
