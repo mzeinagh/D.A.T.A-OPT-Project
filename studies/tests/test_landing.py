@@ -51,3 +51,11 @@ def test_app_pages_still_require_login(client):
 
     assert resp.status_code == 302
     assert resp.url.startswith(reverse("login"))
+
+
+def test_welcome_page_spells_out_the_name_and_unit(client):
+    html = client.get("/").content.decode()
+
+    assert "Document-based Automated Toxicity Analyzer" in html
+    assert "Environmental Assessment Unit" in html
+    assert "expanded and scaled" in html

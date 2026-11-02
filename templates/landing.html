@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}D.A.T.A — Intelligent scientific document analysis{% endblock %}
+{% block title %}D.A.T.A — Document-based Automated Toxicity Analyzer{% endblock %}
 {% block page_class %}landing{% endblock %}
 {% block content %}
 {% url 'studies:study_list' as studies_url %}
@@ -10,6 +10,7 @@
         <div class="lp-hero-text">
             <p class="lp-eyebrow">Intelligent scientific document analysis</p>
             <h1 class="lp-title">D.A.T.A</h1>
+            <p class="lp-fullname">Document-based Automated Toxicity Analyzer</p>
             <p class="lp-tagline">Upload your study. Get structured answers.</p>
             <p class="lp-intro">
                 D.A.T.A reads scientific and toxicology reports for you. It asks every document the same
@@ -17,6 +18,7 @@
                 returns consistent, structured answers you can check against the source page.
                 No prompt writing, no chatting with AI, no searching through hundreds of pages.
             </p>
+            <p class="lp-built-for">Optimized for the Environmental Assessment Unit at NSACB.</p>
             <div class="lp-actions">
                 {% if user.is_authenticated %}
                     <a class="btn btn-primary lp-cta" href="{{ studies_url }}">Open your studies</a>
@@ -104,6 +106,16 @@
                 <p>Review consistent answers with their source pages, and download them as text when you're done.</p>
             </li>
         </ol>
+    </div>
+</section>
+
+<section class="lp-section">
+    <div class="lp-wrap lp-grow">
+        <svg class="lp-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16"/><path d="M7 16v-4M12 16V8M17 16V4"/></svg>
+        <div>
+            <h2 class="lp-h2">Built to grow</h2>
+            <p class="lp-lead">This prototype is designed so it can be expanded and scaled to other use cases: new document types, new question sets, and more teams.</p>
+        </div>
     </div>
 </section>
 

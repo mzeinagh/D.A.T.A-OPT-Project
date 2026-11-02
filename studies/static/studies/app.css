@@ -242,6 +242,11 @@ a.chip:hover { background: var(--accent); color: #fff; }
 .lp-hero-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); gap: 3rem; align-items: center; }
 .lp-eyebrow { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin: 0 0 0.75rem; }
 .lp-title { font-size: clamp(3rem, 7vw, 4.75rem); font-weight: 800; letter-spacing: 0.04em; line-height: 1; margin: 0 0 0.75rem; color: var(--ink); }
+.lp-fullname { font-size: 1.05rem; font-weight: 600; letter-spacing: 0.02em; color: var(--muted); margin: -0.25rem 0 1rem; }
+.lp-built-for { display: inline-block; font-size: 0.9rem; font-weight: 600; color: var(--accent); border: 1px solid currentColor; border-radius: 999px; padding: 0.3rem 0.85rem; margin: 0 0 1.5rem; }
+.lp-grow { display: flex; gap: 1.25rem; align-items: flex-start; }
+.lp-grow .lp-icon { flex: none; margin-top: 0.35rem; }
+.lp-grow .lp-lead { margin-bottom: 0; }
 .lp-tagline { font-size: clamp(1.25rem, 2.4vw, 1.6rem); font-weight: 600; color: var(--accent); margin: 0 0 1.25rem; }
 .lp-intro { font-size: 1.08rem; line-height: 1.7; color: var(--muted); max-width: 36rem; margin: 0 0 1.75rem; }
 .lp-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
