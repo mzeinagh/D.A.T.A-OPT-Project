@@ -1782,7 +1782,7 @@ def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 
                     if lvalue['toc_score'] >0:
                         boundary_score += 0.0375
                         continue
-                    boundary_score += 0.0375*(lvalue['title_page_score'] + lvalue['study_prface_score'] + lvalue['intro_score'])
+                    boundary_score += 0.0375*(lvalue['title_page_score'] + lvalue['study_preface_score'] + lvalue['intro_score'])
                 except:
                     continue
 
@@ -1808,7 +1808,7 @@ def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 
                     if lvalue['toc_score'] >0:
                         boundary_score += 0.0375
                         continue
-                    boundary_score += 0.0375*(lvalue['title_page_score'] + lvalue['study_prface_score'] + lvalue['summary_score'])
+                    boundary_score += 0.0375*(lvalue['title_page_score'] + lvalue['study_preface_score'] + lvalue['summary_score'])
                 except:
                     continue
             
