@@ -1344,6 +1344,100 @@ def title_page_likeliness(text:str):
 
     return probability, features
 
+def _printed_page_number(text: str) -> int | None:
+    """The page number printed on a page ("Page 6", "Page 6 of 14", "-6-",
+    "[6]", "(6)", "6/14"), as an int, or None. The number must sit alone on
+    its own line. Used by `chunk_report` to spot page numbering restarting,
+    a sign that a new study begins.
+
+    Before this was pulled out, the patterns had no MULTILINE flag, so `^`/`$`
+    only matched when a page's entire text was the page number, and the
+    match was returned as text ("page 6") that the caller then did
+    arithmetic on, raising a TypeError that a bare except swallowed. The
+    page-number-reset signal never fired.
+    """
+    import re
+
+    flags = re.IGNORECASE | re.VERBOSE | re.MULTILINE
+    main_patterns = re.compile(
+        r'''^\s*
+        (
+            -\s*\d{1,4}\s*-                       |   # -6-
+            \[\s*\d{1,4}\s*\]                     |   # [6]
+            page\s+\d{1,4}\s+of\s+\d{1,4}         |   # page 6 of 14
+            page\s+\d{1,4}                         # page 6
+        )
+        \s*$''',
+        flags,
+    )
+    other_pattern1 = re.compile(r'''^\s*(\(\s*\d{1,4}\s*\))\s*$''', flags)          # (6)
+    other_pattern2 = re.compile(r'''^\s*(\d{1,4}\s*/\s*\d{1,4})\s*$''', flags)      # 6/14 (current/total)
+
+    lower = text.lower()
+    strong = main_patterns.findall(lower)
+    if strong:
+        token = strong[0]
+    else:
+        weak1 = other_pattern1.findall(lower)
+        if len(weak1) == 1: # exactly one match (ensures it's not part of a table)
+            token = weak1[0]
+        else:
+            weak2 = other_pattern2.findall(lower)
+            if len(weak2) == 1:
+                token = weak2[0]
+            else:
+                return None
+
+    digits = re.search(r"\d{1,4}", token)
+    return int(digits.group()) if digits else None
+
+
+def _snap_boundary_back(page: int, page_scores: dict[int, float], lookback: int = 7, ratio: float = 0.85) -> int:
+    """Move a detected study start (1-based) back to the earliest page within
+    `lookback` pages before it whose boundary score is at least `ratio` of
+    the strongest score in that window. A study's own title page, GLP
+    statement and contents page all score high, so the earliest of them
+    becomes the start.
+    """
+    window = [p for p in range(page - lookback, page + 1) if p in page_scores]
+    if not window:
+        return page
+    best = max(page_scores[p] for p in window)
+    if best <= 0:
+        return page
+    for p in window:
+        if page_scores[p] >= ratio * best:
+            return p
+    return page
+
+
+def _chunk_ranges(boundary_pages: list[int], total_pages: int, min_leading_pages: int = 5) -> list[tuple[int, int]]:
+    """Turn detected study start pages (1-based) into (start, end) page
+    ranges, end inclusive, covering every page exactly once.
+
+    Fixes two earlier problems: each range used to end ON the next study's
+    start page (so every study also got the next study's title page), and
+    pages before the first detected start belonged to no study at all.
+    Leading pages now become their own range when there are at least
+    `min_leading_pages` of them (usually a first study whose start was
+    missed), or are joined to the first study when there are fewer (usually
+    a cover or contents page). Either way the review page shows them.
+    """
+    starts = sorted({p for p in boundary_pages if 1 <= p <= total_pages})
+    if not starts:
+        return []
+    if starts[0] != 1:
+        if starts[0] - 1 >= min_leading_pages:
+            starts.insert(0, 1)
+        else:
+            starts[0] = 1
+    ranges = []
+    for i, start in enumerate(starts):
+        end = starts[i + 1] - 1 if i + 1 < len(starts) else total_pages
+        ranges.append((start, end))
+    return ranges
+
+
 def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 8, targets:list[str]|None = None, store_chunks_locally:bool = False, store_fp:str|None = None):
     """
     This function takes the pdf and creates a document hiearchy for each of the following 2 types of reports:
@@ -1524,57 +1618,11 @@ def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 
 
     def page_number(text:str):
         """
-        Returns any specified page numbers from the text
+        Returns the printed page number on the page (int), or None.
+        See `_printed_page_number`.
         """
+        return _printed_page_number(text)
 
-        main_patterns = re.compile(
-            r'''^\s*
-            (
-                -\s*\d{1,4}\s*-        |   # -6-
-                \[\s*\d{1,4}\s*\]      |   # [6]
-                page\s+\d{1,4}         |   # page 6
-                \bpage\s+\d{1,4}\s+of\s+\d{1,4}\b # page 6 of 14
-            )
-            \s*$''',
-            re.IGNORECASE | re.VERBOSE,
-        )
-
-        other_pattern1 = re.compile(
-            r'''^\s*
-            (
-                \(\s*\d{1,4}\s*\)         # (6)
-            )
-            \s*$''',
-            re.IGNORECASE | re.VERBOSE,
-        )
-        
-        other_pattern2 = re.compile(
-            r'''^\s*
-            (
-                \d{1,4}\s*/\s*\d{1,4}     # 6/14  (current/total)
-            )
-            \s*$''',
-            re.IGNORECASE | re.VERBOSE,
-        )
-
-        strong_matches = re.findall(main_patterns, text.lower())
-
-        if len(strong_matches)>0: # any strong matches
-            page_num = strong_matches[0].strip()
-
-        else: # no strong matches
-            weak_match1 = re.findall(other_pattern1, text.lower())
-            if len(weak_match1) == 1: # exactly one match (ensures it's not part of a table)
-                page_num = weak_match1[0].strip() 
-            else:
-                weak_match2 = re.findall(other_pattern2, text.lower())
-                if len(weak_match2) == 1: # exactly one match (ensures it's not part of a table)
-                    page_num = weak_match2[0].strip() 
-                else:
-                    page_num = None
-
-        return page_num
-    
     def summary_page(text:str):
         """
         Returns the likeliness of a page being a summary page (0 or 1) and a list of all matching section objects whose titles have been identified as summary titles.
@@ -1645,7 +1693,7 @@ def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 
         total_pages = src.page_count
 
         for i, (start, end) in enumerate(page_ranges):
-            end = min(end-1, total_pages)
+            end = min(end-1, total_pages-1) # 1-based inclusive end -> 0-based to_page
 
             # insert_pdf copies a page range directly from src into a new doc
             out_doc = pymupdf.open()
@@ -1655,7 +1703,7 @@ def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 
             out_doc.save(output_path)
             out_doc.close()
 
-            print(f"Saved {output_path} ({end - start} pages)")
+            print(f"Saved {output_path} ({end - start + 2} pages)")
 
         src.close()
     
@@ -1685,7 +1733,7 @@ def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 
         title_page_score, _ = title_page_likeliness(p)
         study_preface_score, _ = study_preface_likeliness(p)
         studyid = study_id(p)
-        pagenum = page_number(p)
+        pagenum = page_number(ps[pdx]) # raw text: cleaning can join the page-number line onto its neighbours
         summary_score, _ = summary_page(p)
         intro_score = introduction(p)
         
@@ -1708,7 +1756,7 @@ def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 
         title_page_score = value['title_page_score']
         study_preface_score = value['study_preface_score']
         page_num = value['pdf_page_num']
-        study_id = value['study_id']
+        studyid = value['study_id'] # this page's own study id (was read from the wrong variable before)
         summary_score = value['summary_score']
         intro_score = value['intro_score']
 
@@ -1830,7 +1878,8 @@ def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 
                 try:
                     lvalue = scores[l]
                     page_numl = lvalue['pdf_page_num']
-                    if (page_numl) and (page_numl in (range(page_num-l-3, page_num-l+3))): # 3-page wiggle room for inserts
+                    expected = page_num - (s - l) # printed number page l would carry if numbering ran on without a restart
+                    if (page_numl) and (abs(page_numl - expected) <= 3): # 3-page wiggle room for inserts
                         pass 
                     elif not page_numl:
                         pass
@@ -1977,6 +2026,14 @@ def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 
         else: # No changes detected in the combined batch; assume that the window was not big enough to capture change and that the first page of the window is the start of a study boundary.
             boundary_pages.append(list(dic)[0])
     
+    # Snap each start back to where the study really begins. A start is
+    # found per 8-page block, so when a title page sits near the end of a
+    # block whose average stays low, the start lands on the first page of
+    # the NEXT block instead (e.g. page 33 for a study starting on page 31),
+    # and the previous study keeps the new study's first pages.
+    boundary_pages = [_snap_boundary_back(b, page_boundary_scores, lookback=batch_size - 1) for b in boundary_pages]
+    boundary_pages = sorted(set(boundary_pages))
+
     # finally add the boundary pages to the boundaries list
     if len(boundary_pages) > 1:
         for b in boundary_pages:
@@ -1989,21 +2046,19 @@ def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 
     # Split report by boundaries
     #------------------------------------------------
     
-    for bdx in range(len(boundaries)):
-        key = list(boundaries)[bdx]
-        value = list(boundaries.values())[bdx]
-
-        if bdx+1 < len(boundaries):
-            next_page = list(boundaries)[bdx+1]
-        else:
-            next_page = len(pages)+1 # last page of pdf
-        
+    for page_start, page_end in _chunk_ranges(list(boundaries), len(pages)):
+        if page_start in boundaries:
+            title = boundaries[page_start]
+        elif page_start <= min(boundaries) <= page_end: # a few leading pages joined to the first study
+            title = boundaries[min(boundaries)]
+        else: # leading pages that became their own study
+            title = pages[page_start-1]
         chunks.append(Chunk(
-            page_start = key,
-            page_end = next_page,
-            title = value
+            page_start = page_start,
+            page_end = page_end,
+            title = title
         ))
-    
+
     #------------------------------------------------
     # Return chunks and optionally store as seperate pdfs
     #------------------------------------------------
@@ -2019,11 +2074,10 @@ def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 
     if store_chunks_locally:
         if store_fp:
             for c in chunks:
-                page_range = tuple(c.page_start,c.page_end)
                 split_pdf_by_ranges(
                     pdf_fp,
                     store_fp,
-                    page_range
+                    [(c.page_start, c.page_end)]
                 )
         else:
             raise ValueError("No filepath to store pdf chunks specified! Please specify a folder in which to store the chunks.")
