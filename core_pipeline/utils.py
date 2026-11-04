@@ -592,7 +592,7 @@ def is_table(text:str, boolean:bool = True, threshold:float = 0.70):
     
     return table_likelihood(text)
 
-def detect_sections(pdf_fp:str | None, page:int | None = None, text:str | None = None, target_titles:list|None=None,searching:bool=False):
+def detect_sections(pdf_fp:str | None, page:int | None = None, text:str | None = None, target_titles:list|None=None,searching:bool=False, pages:list[str]|None=None):
     """
     Inputs:
     pdf_fp: str
@@ -605,6 +605,11 @@ def detect_sections(pdf_fp:str | None, page:int | None = None, text:str | None =
     Sections - List of Section Objects
 
     if searching == True, the search returns first-hits only
+
+    pages: optional, the PDF's raw page texts (index 0 = page 1), already
+    read once by the caller (see core_pipeline/pdf_text.py). When given, the
+    PDF is not opened again. A caller limiting the search to some pages
+    passes "" for every other page, which keeps page numbers unchanged.
     """
     import re
     import fitz
@@ -645,73 +650,29 @@ def detect_sections(pdf_fp:str | None, page:int | None = None, text:str | None =
         re.MULTILINE
     )
 
-    with fitz.open(pdf_fp) as doc:
-        pages = [page.get_text() for page in doc]
+    if pages is None:
+        if pdf_fp is not None:
+            with fitz.open(pdf_fp) as doc:
+                pages = [p.get_text() for p in doc]
+        else:
+            pages = [] # only `text` is searched; no PDF to open
 
-        if page or text:
-            if page:
-                clean_text = clean_pymupdf_text(pages[int(page-1)])
+    if page or text:
+        if page:
+            clean_text = clean_pymupdf_text(pages[int(page-1)])
 
-                page_num = page
-            if text:
-                page_num = 0
-                clean_text = text
+            page_num = page
+        if text:
+            page_num = 0
+            clean_text = text
 
-            # match the first pattern ----------------------------------------------
-            matches1 = re.findall(Title_patterns, clean_text, re.MULTILINE)
+        # match the first pattern ----------------------------------------------
+        matches1 = re.findall(Title_patterns, clean_text, re.MULTILINE)
 
-            if len(matches1)>0:
-                for match in matches1:
-                    title = match.strip()
-                    
-                    if (title):
-                        sections.append(
-                            Section(
-                                page_num=page_num,
-                                content=clean_text,
-                                title=title
-                            )
-                        )
-
-            # Then match the second pattern ----------------------------------------------
-            for m in TOC_TITLE_RE.finditer(clean_text):
-                title=m.group(1).strip()
-
-                if (title):
-                    sections.append(
-                        Section(
-                            page_num=page_num,
-                            content=clean_text,
-                            title=title
-                        )
-                    )
-            
-            return sections
-        
-        # else (not page or text)
-        for page_num, text in enumerate(pages, start=1):
-            clean_text = clean_pymupdf_text(text) # First clean the format
-
-            # First match the first pattern
-            matches1 = re.findall(Title_patterns, clean_text, re.MULTILINE)
-
-            if len(matches1)>0:
-                for match in matches1:
-                    title = match.strip()
-                    
-                    if (title):
-                        sections.append(
-                            Section(
-                                page_num=page_num,
-                                content=clean_text,
-                                title=title
-                            )
-                        )
-            
-            # Then match the second pattern
-            for m in TOC_TITLE_RE.finditer(clean_text):
-                title=m.group(1).strip()
-
+        if len(matches1)>0:
+            for match in matches1:
+                title = match.strip()
+                
                 if (title):
                     sections.append(
                         Section(
@@ -721,243 +682,291 @@ def detect_sections(pdf_fp:str | None, page:int | None = None, text:str | None =
                         )
                     )
 
-        if searching == False: # Simply return a list of all section objects detected in the pdf
-            return sections
+        # Then match the second pattern ----------------------------------------------
+        for m in TOC_TITLE_RE.finditer(clean_text):
+            title=m.group(1).strip()
+
+            if (title):
+                sections.append(
+                    Section(
+                        page_num=page_num,
+                        content=clean_text,
+                        title=title
+                    )
+                )
         
-        elif searching == True:
-            if target_titles:
-                # Search for the relevant sections and return them
-                target_sections = []
-                for target in target_titles:
-                    for section in sections:
-                        if (target.lower().strip() in section.title.lower().strip()):
-                            debug.append(f"Hit found: {section.title}, page:{section.page_num}")
-                            relevant = True
-                            if is_toc(section.content):
-                                debug.append(f"TOC page detected, page: {section.page_num}")
-                                continue # skip TOC
+        return sections
+    
+    # else (not page or text)
+    for page_num, text in enumerate(pages, start=1):
+        clean_text = clean_pymupdf_text(text) # First clean the format
+
+        # First match the first pattern
+        matches1 = re.findall(Title_patterns, clean_text, re.MULTILINE)
+
+        if len(matches1)>0:
+            for match in matches1:
+                title = match.strip()
+                
+                if (title):
+                    sections.append(
+                        Section(
+                            page_num=page_num,
+                            content=clean_text,
+                            title=title
+                        )
+                    )
+        
+        # Then match the second pattern
+        for m in TOC_TITLE_RE.finditer(clean_text):
+            title=m.group(1).strip()
+
+            if (title):
+                sections.append(
+                    Section(
+                        page_num=page_num,
+                        content=clean_text,
+                        title=title
+                    )
+                )
+
+    if searching == False: # Simply return a list of all section objects detected in the pdf
+        return sections
+    
+    elif searching == True:
+        if target_titles:
+            # Search for the relevant sections and return them
+            target_sections = []
+            for target in target_titles:
+                for section in sections:
+                    if (target.lower().strip() in section.title.lower().strip()):
+                        debug.append(f"Hit found: {section.title}, page:{section.page_num}")
+                        relevant = True
+                        if is_toc(section.content):
+                            debug.append(f"TOC page detected, page: {section.page_num}")
+                            continue # skip TOC
+                    
+                        if target.lower() in ['summary','sumnary']: # No summary of titles. These are usually used to refer to summary of smaller results, not study summary
+                            if (" of " in section.title.lower().strip()):
+                                study_summaries = re.compile(r'\bsummary\s+of\s+(?:\w+\s+)*?study\b', re.IGNORECASE)
+
+                                if not bool(study_summaries.search(section.title.lower().strip())):
+                                    debug.append(f'Summary title found but summary was detected to be irrelevant: page {section.page_num}, title: {section.title}')
+                                    relevant = False
+                                
+                                elif ("table" in section.title.lower().strip()):
+                                    debug.append(f"Summary title found but detected to be a table summary on page {section.page_num}, title: {section.title}")
+                                    relevant = False
                         
-                            if target.lower() in ['summary','sumnary']: # No summary of titles. These are usually used to refer to summary of smaller results, not study summary
-                                if (" of " in section.title.lower().strip()):
-                                    study_summaries = re.compile(r'\bsummary\s+of\s+(?:\w+\s+)*?study\b', re.IGNORECASE)
+                        if relevant:
+                            target_sections.append(section)
 
-                                    if not bool(study_summaries.search(section.title.lower().strip())):
-                                        debug.append(f'Summary title found but summary was detected to be irrelevant: page {section.page_num}, title: {section.title}')
-                                        relevant = False
-                                    
-                                    elif ("table" in section.title.lower().strip()):
-                                        debug.append(f"Summary title found but detected to be a table summary on page {section.page_num}, title: {section.title}")
-                                        relevant = False
-                            
-                            if relevant:
-                                target_sections.append(section)
+            if len(target_sections)==0:
+                debug.append(f"NO target sections found")
+                return target_sections
+                
+            debug.append([t.title for t in target_sections])
+            organized_target_sections = []
 
-                if len(target_sections)==0:
-                    debug.append(f"NO target sections found")
-                    return target_sections
-                    
-                debug.append([t.title for t in target_sections])
-                organized_target_sections = []
+            for section in target_sections:
+                if section.title.lower() in [s.title.lower() for s in organized_target_sections]: # matching section titles between analyzed section and pre-covered sections
+                    continue # move on to next one; already covered.
 
-                for section in target_sections:
-                    if section.title.lower() in [s.title.lower() for s in organized_target_sections]: # matching section titles between analyzed section and pre-covered sections
-                        continue # move on to next one; already covered.
+                page_num = section.page_num
 
-                    page_num = section.page_num
+                # First and foremost detect if the page is a TOC
+                if is_toc(section.content):
+                    continue # do not add to organized_target_sections if page is a TOC
+                
+                # Second detect if the page fully contains the section (includes multiple sections)
+                section_hot_words = ["introduction","1ntroduction","summary","sumnary","abstract","test substance","test material","procedure","results","discussion","references","methods","cell line","harvest","staining","coding"]
+                excluded_hot_words = [word for word in section_hot_words if word not in set(target_titles)]
 
-                    # First and foremost detect if the page is a TOC
-                    if is_toc(section.content):
-                        continue # do not add to organized_target_sections if page is a TOC
-                    
-                    # Second detect if the page fully contains the section (includes multiple sections)
-                    section_hot_words = ["introduction","1ntroduction","summary","sumnary","abstract","test substance","test material","procedure","results","discussion","references","methods","cell line","harvest","staining","coding"]
-                    excluded_hot_words = [word for word in section_hot_words if word not in set(target_titles)]
+                other_matches = re.findall(Title_patterns, pages[page_num-1], re.MULTILINE)
+                other_matches2 = [m.group(0).strip() for m in TOC_TITLE_RE.finditer(pages[page_num-1])]
+                combined_matches = set(other_matches + other_matches2)
 
-                    other_matches = re.findall(Title_patterns, pages[page_num-1], re.MULTILINE)
-                    other_matches2 = [m.group(0).strip() for m in TOC_TITLE_RE.finditer(pages[page_num-1])]
-                    combined_matches = set(other_matches + other_matches2)
+                if (len(combined_matches)) > 1: # More than one section object exists for this page
+                    content = section.content
+                    target_title = None
+                    non_target_titles = []
+                    for title in combined_matches:
+                        if ( re.compile(r'\b(?=\S*[A-Za-z])(?=\S*\d)(?=\S*[^A-Za-z0-9])\S+\b').search(title) ):
+                            # if title is junk (both alphanumeric characters and multiple special characters.)
+                            continue
+                        if (title.lower() in excluded_hot_words) or any(word.lower() in title.lower() for word in excluded_hot_words):
+                            # if title is in elcuded hot words, or any excluded hot words are in title
+                            non_target_titles.append(title)
+                            continue
+                        if (title.lower() in target_titles) or any(word.lower() in title.lower() for word in target_titles):
+                            # If this title is a target title
+                            target_title = title
 
-                    if (len(combined_matches)) > 1: # More than one section object exists for this page
-                        content = section.content
-                        target_title = None
-                        non_target_titles = []
-                        for title in combined_matches:
-                            if ( re.compile(r'\b(?=\S*[A-Za-z])(?=\S*\d)(?=\S*[^A-Za-z0-9])\S+\b').search(title) ):
-                                # if title is junk (both alphanumeric characters and multiple special characters.)
-                                continue
-                            if (title.lower() in excluded_hot_words) or any(word.lower() in title.lower() for word in excluded_hot_words):
-                                # if title is in elcuded hot words, or any excluded hot words are in title
-                                non_target_titles.append(title)
-                                continue
-                            if (title.lower() in target_titles) or any(word.lower() in title.lower() for word in target_titles):
-                                # If this title is a target title
-                                target_title = title
+                    if (len(non_target_titles)>0) and target_title: # Non target section titles exist on this page
+                        debug.append(f"NON target section titles exist here:{non_target_titles}")
+                        # Now remove text preceeding our target title and proceeding any non-target titles
+                        match = re.search(re.escape(target_title), content, re.IGNORECASE)
+                        if match: # Cut everything before the target title
+                            debug.append(f"start of target section: {match.start()}")
+                            content = content[match.start():]
 
-                        if (len(non_target_titles)>0) and target_title: # Non target section titles exist on this page
-                            debug.append(f"NON target section titles exist here:{non_target_titles}")
-                            # Now remove text preceeding our target title and proceeding any non-target titles
-                            match = re.search(re.escape(target_title), content, re.IGNORECASE)
-                            if match: # Cut everything before the target title
-                                debug.append(f"start of target section: {match.start()}")
-                                content = content[match.start():]
-
-                            # Cut everything from the first non-target title onward
-                            for title in non_target_titles:
-                                match2 = re.search(r'(?<!\S)' + re.escape(title.strip()) + r'(?!\S)', content, re.IGNORECASE)
-                                if match2:
-                                    if ( match2.start() > match.start() ) and ( match2.start()>=150): # ONLY if at least 150 letters have elapsed.
-                                        debug.append(f"start of non-target section: {match2.start()}")
-                                        try:
-                                            content = content[:match2.start()]
-                                    
-                                        except:
-                                            pass
-
-                            organized_target_sections.append(
-                                Section(
-                                    page_num=page_num,
-                                    content=content,
-                                    title=target_title
-                                )
-                            )
-                            continue # if non-target titles exist, then the summary section must have ended on this page
-
-                        else: # Only the target section title exists on this page
-                            organized_target_sections.append(section)
-
-                    else: # Only one section header exists here, including non-sensical ones.
-                        organized_target_sections.append(section)
-
-                    # Checking subsequent page ...
-                    if page_num >= len(pages): # make sure following page exists
-                        continue
-                    if page_num+1 in [t.page_num for t in organized_target_sections]: # subsequent page already included in the retrieved pages (i.e. it contains a target title)
-                        continue
-
-                    next_page = pages[page_num] # Since pages is 0-based, page_num should be 1 page after the target page
-                    clean_next_page = clean_pymupdf_text(next_page)
-
-                    # Find titles in next page
-                    next_matches = re.findall(Title_patterns, clean_next_page, re.MULTILINE)
-                    next_matches2 = [m.group(1).strip() for m in TOC_TITLE_RE.finditer(clean_next_page)]
-                    combined_next_matches = next_matches + next_matches2
-                    non_target_titles2 = []
-
-                    for line in clean_next_page.split('\n'): # search line by line
-                        line = line.strip()
-                        if ( len(line.split()) > 10 ): # first sentence
-                            debug.append(line)
-                            if line[0].islower(): # first sentence is lowercase
-                                debug.append(f"IS LOWER: {page_num+1}")
-                                if (len(next_matches)+len(next_matches))>0: # More than 1 title exists on the next page
-                                    content2 = None
-
-                                    for title in combined_next_matches:
-                                        if ( re.compile(r'\b(?=\S*[A-Za-z])(?=\S*\d)(?=\S*[^A-Za-z0-9])\S+\b').search(title) ):
-                                            # if title is junk (both alphanumeric characters and multiple special characters.)
-                                            continue
-                                        if (title.strip().lower() in excluded_hot_words) or any(word.strip().lower() in title.lower() for word in excluded_hot_words):
-                                            # if title is in elcuded hot words, or any excluded hot words are in title
-                                            non_target_titles2.append(title)
-                                            continue
-
-                                    if (len(non_target_titles2)>0): # Non target section titles exist on this page
-
-                                        # Cut everything from the first non-target title onward
-                                        for title in non_target_titles2:
-                                            match = re.search(r'(?<!\S)' + re.escape(title.strip()) + r'(?!\S)', clean_next_page, re.IGNORECASE)
-                                            if match:
-                                                content2 = clean_next_page[:match.start()]
-
-                                        next_page_sec = Section(
-                                            page_num=page_num+1,
-                                            content=content2,
-                                            title=str(f"{section.title}; continued page")
-                                        )
-                                        if next_page_sec.page_num not in [t.page_num for t in organized_target_sections]:
-                                            organized_target_sections.append(next_page_sec)
-                                            break
-
-                                else:
-                                    next_page_sec = Section(
-                                        page_num=page_num+1,
-                                        content=clean_next_page,
-                                        title=str(f"{section.title}; continued page")
-                                    )
-                                    organized_target_sections.append(next_page_sec)
-                                    break
-
-                            else: # First sentence is not lower case
-                                # Find titles in the following page
-                                if (len(next_matches)>0) or (len(next_matches2)>0):
-                                    if any(t.strip().lower() in excluded_hot_words for t in next_matches) or any(t.strip().lower() in excluded_hot_words for t in next_matches2): # next page contains a new section
-                                        break
-                                    else:
+                        # Cut everything from the first non-target title onward
+                        for title in non_target_titles:
+                            match2 = re.search(r'(?<!\S)' + re.escape(title.strip()) + r'(?!\S)', content, re.IGNORECASE)
+                            if match2:
+                                if ( match2.start() > match.start() ) and ( match2.start()>=150): # ONLY if at least 150 letters have elapsed.
+                                    debug.append(f"start of non-target section: {match2.start()}")
+                                    try:
+                                        content = content[:match2.start()]
+                                
+                                    except:
                                         pass
 
-                                # next page does not begin a new section
-                                # If the next page has very little words, assume it is a continuation of the previous page. 
-                                word_limit = 50
-                                if len(clean_next_page.split()) <= word_limit:
-                                    next_page_sec = Section(
-                                        page_num = page_num+1,
-                                        content = clean_next_page,
-                                        title = str(f"{section.title}; continued page")
-                                    )
-                                    organized_target_sections.append(next_page_sec)
-                                    break
+                        organized_target_sections.append(
+                            Section(
+                                page_num=page_num,
+                                content=content,
+                                title=target_title
+                            )
+                        )
+                        continue # if non-target titles exist, then the summary section must have ended on this page
 
+                    else: # Only the target section title exists on this page
+                        organized_target_sections.append(section)
+
+                else: # Only one section header exists here, including non-sensical ones.
+                    organized_target_sections.append(section)
+
+                # Checking subsequent page ...
+                if page_num >= len(pages): # make sure following page exists
+                    continue
+                if page_num+1 in [t.page_num for t in organized_target_sections]: # subsequent page already included in the retrieved pages (i.e. it contains a target title)
+                    continue
+
+                next_page = pages[page_num] # Since pages is 0-based, page_num should be 1 page after the target page
+                clean_next_page = clean_pymupdf_text(next_page)
+
+                # Find titles in next page
+                next_matches = re.findall(Title_patterns, clean_next_page, re.MULTILINE)
+                next_matches2 = [m.group(1).strip() for m in TOC_TITLE_RE.finditer(clean_next_page)]
+                combined_next_matches = next_matches + next_matches2
+                non_target_titles2 = []
+
+                for line in clean_next_page.split('\n'): # search line by line
+                    line = line.strip()
+                    if ( len(line.split()) > 10 ): # first sentence
+                        debug.append(line)
+                        if line[0].islower(): # first sentence is lowercase
+                            debug.append(f"IS LOWER: {page_num+1}")
+                            if (len(next_matches)+len(next_matches))>0: # More than 1 title exists on the next page
+                                content2 = None
+
+                                for title in combined_next_matches:
+                                    if ( re.compile(r'\b(?=\S*[A-Za-z])(?=\S*\d)(?=\S*[^A-Za-z0-9])\S+\b').search(title) ):
+                                        # if title is junk (both alphanumeric characters and multiple special characters.)
+                                        continue
+                                    if (title.strip().lower() in excluded_hot_words) or any(word.strip().lower() in title.lower() for word in excluded_hot_words):
+                                        # if title is in elcuded hot words, or any excluded hot words are in title
+                                        non_target_titles2.append(title)
+                                        continue
+
+                                if (len(non_target_titles2)>0): # Non target section titles exist on this page
+
+                                    # Cut everything from the first non-target title onward
+                                    for title in non_target_titles2:
+                                        match = re.search(r'(?<!\S)' + re.escape(title.strip()) + r'(?!\S)', clean_next_page, re.IGNORECASE)
+                                        if match:
+                                            content2 = clean_next_page[:match.start()]
+
+                                    next_page_sec = Section(
+                                        page_num=page_num+1,
+                                        content=content2,
+                                        title=str(f"{section.title}; continued page")
+                                    )
+                                    if next_page_sec.page_num not in [t.page_num for t in organized_target_sections]:
+                                        organized_target_sections.append(next_page_sec)
+                                        break
+
+                            else:
+                                next_page_sec = Section(
+                                    page_num=page_num+1,
+                                    content=clean_next_page,
+                                    title=str(f"{section.title}; continued page")
+                                )
+                                organized_target_sections.append(next_page_sec)
+                                break
+
+                        else: # First sentence is not lower case
+                            # Find titles in the following page
+                            if (len(next_matches)>0) or (len(next_matches2)>0):
+                                if any(t.strip().lower() in excluded_hot_words for t in next_matches) or any(t.strip().lower() in excluded_hot_words for t in next_matches2): # next page contains a new section
+                                    break
                                 else:
                                     pass
 
-                                if (page_num+1) not in [o.page_num for o in organized_target_sections]:
-                                    PAGE_NUM_RE = re.compile(
-                                        r"""
-                                        (?:
-                                            # Form 1: "Page 2", "Page 2 of 14", case-insensitive
-                                            \bPage\s+\d+(?:\s+of\s+\d+)?\b
-                                        )
-                                        """,
-                                        re.VERBOSE | re.IGNORECASE,
+                            # next page does not begin a new section
+                            # If the next page has very little words, assume it is a continuation of the previous page. 
+                            word_limit = 50
+                            if len(clean_next_page.split()) <= word_limit:
+                                next_page_sec = Section(
+                                    page_num = page_num+1,
+                                    content = clean_next_page,
+                                    title = str(f"{section.title}; continued page")
+                                )
+                                organized_target_sections.append(next_page_sec)
+                                break
+
+                            else:
+                                pass
+
+                            if (page_num+1) not in [o.page_num for o in organized_target_sections]:
+                                PAGE_NUM_RE = re.compile(
+                                    r"""
+                                    (?:
+                                        # Form 1: "Page 2", "Page 2 of 14", case-insensitive
+                                        \bPage\s+\d+(?:\s+of\s+\d+)?\b
                                     )
-                                    matches_next_page = PAGE_NUM_RE.findall(clean_next_page)
-                                    matches_previous_page = PAGE_NUM_RE.findall(section.content)
+                                    """,
+                                    re.VERBOSE | re.IGNORECASE,
+                                )
+                                matches_next_page = PAGE_NUM_RE.findall(clean_next_page)
+                                matches_previous_page = PAGE_NUM_RE.findall(section.content)
 
-                                    if matches_previous_page: # page number exists in the target section
-                                        page_num_previous = int(matches_previous_page[0].split()[1]) # both 'page __ of __' and 'page __' has the page number in the second position.
-                                        next_page_num = section.page_num+1
+                                if matches_previous_page: # page number exists in the target section
+                                    page_num_previous = int(matches_previous_page[0].split()[1]) # both 'page __ of __' and 'page __' has the page number in the second position.
+                                    next_page_num = section.page_num+1
 
-                                        while not matches_next_page: # while next page also contains page number; not an insert
-                                            debug.append(f"not page numbers found on page {next_page_num}")
-                                            next_page_num += 1
-                                            if next_page_num > len(pages):
-                                                break # no pages left to analyze
-                                            matches_next_page = PAGE_NUM_RE.findall(pages[next_page_num-1]) # convert to 0-based
+                                    while not matches_next_page: # while next page also contains page number; not an insert
+                                        debug.append(f"not page numbers found on page {next_page_num}")
+                                        next_page_num += 1
+                                        if next_page_num > len(pages):
+                                            break # no pages left to analyze
+                                        matches_next_page = PAGE_NUM_RE.findall(pages[next_page_num-1]) # convert to 0-based
 
-                                        if matches_next_page:
-                                            if int(matches_next_page[0].split()[1]) == (page_num_previous+1): # Page numbers are sequential
-                                                debug.append(f"Continuation page found on page {next_page_num}")
-                                                if next_page_num not in [o.page_num for o in organized_target_sections]:
-                                                    next_page_sec = Section(
-                                                        page_num = next_page_num,
-                                                        content = pages[next_page_num-1],
-                                                        title = str(f"{section.title}; continued page")
-                                                    )
-                                                    organized_target_sections.append(next_page_sec)
-                                                    break
-                                                else: # page already included in organized target sections
-                                                    break
-                                    
-                                        else: # next page does not contain page number; likely an insert page (i.e. those 'best copy available' inserts)
-                                            break
+                                    if matches_next_page:
+                                        if int(matches_next_page[0].split()[1]) == (page_num_previous+1): # Page numbers are sequential
+                                            debug.append(f"Continuation page found on page {next_page_num}")
+                                            if next_page_num not in [o.page_num for o in organized_target_sections]:
+                                                next_page_sec = Section(
+                                                    page_num = next_page_num,
+                                                    content = pages[next_page_num-1],
+                                                    title = str(f"{section.title}; continued page")
+                                                )
+                                                organized_target_sections.append(next_page_sec)
+                                                break
+                                            else: # page already included in organized target sections
+                                                break
+                                
+                                    else: # next page does not contain page number; likely an insert page (i.e. those 'best copy available' inserts)
+                                        break
 
-                                    else: # page numbers are not a thing in this document or does not exist in the target section
-                                        break # be safe and assume no continuations.
+                                else: # page numbers are not a thing in this document or does not exist in the target section
+                                    break # be safe and assume no continuations.
 
-                                else: # Page already included in organized target sections
-                                    break
+                            else: # Page already included in organized target sections
+                                break
 
-                return organized_target_sections
+            return organized_target_sections
 
 def is_toc(text: str, min_entries: int = 4, min_ratio: float = 0.2,words_threshold:int = 100) -> bool:
     import re
@@ -1438,7 +1447,7 @@ def _chunk_ranges(boundary_pages: list[int], total_pages: int, min_leading_pages
     return ranges
 
 
-def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 8, targets:list[str]|None = None, store_chunks_locally:bool = False, store_fp:str|None = None):
+def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 8, targets:list[str]|None = None, store_chunks_locally:bool = False, store_fp:str|None = None, pdf_text=None):
     """
     This function takes the pdf and creates a document hiearchy for each of the following 2 types of reports:
     1. Single-study reports
@@ -1461,6 +1470,7 @@ def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 
     targets: if present, only return the sections whose title pages contain the target words. (OR condition)
     store_chunks_locally
     store_fp
+    pdf_text: optional `core_pipeline.pdf_text.PdfText` already read by the caller; the PDF is then not read again.
 
     Outputs:
     returns a List of Chunck Objects | None
@@ -1711,10 +1721,14 @@ def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 
     chunks = []
     page_boundary_scores = {} # page number (1-based), score (float 0-1, or -1(for TOC pages))
 
-    with pymupdf.open(pdf_fp) as doc:
-        ps = [p.get_text() for p in doc]
-        for p in ps:
-            pages.append(clean_pymupdf_text(p))
+    if pdf_text is not None:
+        ps = list(pdf_text.raw_pages)
+        pages.extend(pdf_text.clean_pages)
+    else:
+        with pymupdf.open(pdf_fp) as doc:
+            ps = [p.get_text() for p in doc]
+            for p in ps:
+                pages.append(clean_pymupdf_text(p))
 
     scores = {} # page number: {'toc_score':int(0,1),'title_page_score':float, 'study_preface_score':float, 'pdf_page_num':int|None, 'study_id':str|None, 'summary_score':int(0,1), 'intro_score':int(0,1)}
 
@@ -2084,7 +2098,7 @@ def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 
     
     return chunks
 
-def chunk_integrated(pdf_fp:str):
+def chunk_integrated(pdf_fp:str, pdf_text=None):
     """
     Integrated-study detection and chunking for multi-study regulatory PDFs
     (e.g. NRA/APVMA-style Public Release Summaries that stitch together a
@@ -2109,6 +2123,10 @@ def chunk_integrated(pdf_fp:str):
     `is_toc_fn`. Run `clean_pdf_text()` over Section.content afterwards if you
     want OCR-noise cleanup; that's left out here to keep this self-contained.
 
+    `pdf_text`: optional `core_pipeline.pdf_text.PdfText` already read by
+    the caller. Its RAW pages are used, never the cleaned ones, so section
+    structure is exactly the same as reading the PDF here.
+
     Note: this only works on PDFs with an extractable text layer. Scanned pages
     with no OCR'd text layer (checked via `has_text_layer()`) will silently
     produce zero sections -- run OCR first for those.
@@ -2126,6 +2144,16 @@ def chunk_integrated(pdf_fp:str):
         page_num: int
         content: str
         title: str  # "High Level -> Low Level" (or just "High Level" if no body subheadings found)
+
+
+    def _open_doc(fp):
+        """The PDF's pages: the caller's already-read raw text when
+        `pdf_text` was given (no new read; raw, not cleaned, because the
+        contents-page and heading rules below depend on original line
+        breaks), otherwise the PDF itself, as before."""
+        if pdf_text is not None:
+            return pdf_text.as_document()
+        return pymupdf.open(fp)
 
 
     # ---------------------------------------------------------------- patterns
@@ -2376,7 +2404,7 @@ def chunk_integrated(pdf_fp:str):
             >=3 study/summary keywords in a small page span (0.3)
         Falls back to a whole-document body-heading scan if there's no TOC.
         """
-        doc = pymupdf.open(pdf_fp)
+        doc = _open_doc(pdf_fp)
         try:
             if not has_text_layer(doc):
                 return 0.0  # no extractable text -- needs OCR first, can't assess
@@ -2430,7 +2458,7 @@ def chunk_integrated(pdf_fp:str):
         if not pdf_fp:
             raise ValueError("pdf_fp is required to extract section content")
 
-        doc = pymupdf.open(pdf_fp)
+        doc = _open_doc(pdf_fp)
         try:
             if not has_text_layer(doc):
                 return []  # scanned, no OCR text layer -- nothing to chunk
@@ -2491,7 +2519,7 @@ def chunk_integrated(pdf_fp:str):
         text layer -- callers should treat [] as "not integrated / needs OCR
         first", not "empty document."
         """
-        doc = pymupdf.open(pdf_fp)
+        doc = _open_doc(pdf_fp)
         toc_text = get_toc_text(doc, is_toc_fn=is_toc_fn)
         doc.close()
 

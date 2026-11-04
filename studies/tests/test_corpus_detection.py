@@ -292,3 +292,37 @@ class TestMaterializeStudyPages:
         study = Study.objects.get(batch=batch)
         assert StudyPage.objects.filter(study=study).count() == 0
         assert study.assessment_category == "toxicity"
+
+
+class TestOcrNotRepeated:
+    def test_process_as_one_study_after_detection_reuses_table_ocr(self, user, one_question):
+        """Detection already OCR'd the table page; choosing "process as one
+        study" afterwards must reuse that result, not run Docling again."""
+        table = "\n".join([
+            "Table 3 Mean body weight (g)", "Dose  Day 1  Day 7  Day 14", "0  201.2  245.3  280.1",
+            "100  199.8  240.2  275.4", "300  200.4  238.9  270.2", "1000  198.7  230.1  262.3",
+            "p < 0.05 compared with control", "12.4  13.1  14.2  15.6", "22.1  23.4  24.8  25.0",
+        ])
+        pdf_bytes = _make_pdf_bytes(["FINAL REPORT\nStudy title", table, "Discussion of results."])
+        upload = SimpleUploadedFile("study.pdf", pdf_bytes, content_type="application/pdf")
+        batch = UploadBatch.objects.create(
+            uploaded_file=upload, original_filename="study.pdf", uploaded_by=user, split_requested=True,
+        )
+        calls = []
+
+        def fake_ocr(path, start_page=None, end_page=None):
+            calls.append(start_page)
+            return f"OCR table page {start_page}"
+
+        with patch("core_pipeline.document_processor.ocr_docling", fake_ocr), patch(
+            "studies.tasks.run_pipeline_task.delay"
+        ):
+            run_corpus_detection(batch)  # box ticked -> waits for review
+            batch.refresh_from_db()
+            assert batch.split_status == UploadBatch.SplitStatus.AWAITING_CONFIRMATION
+            process_as_single_corpus(batch)
+
+        assert calls == [2]
+        study = Study.objects.get(batch=batch)
+        page = StudyPage.objects.get(study=study, page_number=2)
+        assert page.extraction_method == StudyPage.ExtractionMethod.OCR

@@ -42,12 +42,12 @@ post-call state.
 """
 import logging
 
-import pymupdf
 from django.conf import settings as django_settings
 from django.db import transaction
 from django.utils import timezone
 
 from core_pipeline.document_processor import build_corpora, build_corpus_for_page_range
+from core_pipeline.pdf_text import PdfText
 
 from .models import DetectedCorpus, Study, StudyPage, UploadBatch
 from .services import start_pipeline_run
@@ -185,14 +185,15 @@ def _process_as_single_corpus_body(batch: UploadBatch, *, started_by) -> None:
     """
     try:
         pdf_path = batch.uploaded_file.path
-        with pymupdf.open(pdf_path) as doc:
-            page_count = len(doc)
+        pdf_text = PdfText.from_file(pdf_path)  # read once: page count + text
         page_events: list[dict] = []
         corpus = build_corpus_for_page_range(
             pdf_path,
-            page_range=list(range(1, page_count + 1)),
+            page_range=list(range(1, pdf_text.page_count + 1)),
             on_page=page_events.append,
             ocr_timeout_seconds=django_settings.OCR_TIMEOUT_SECONDS,
+            ocr_cache=_earlier_ocr_results(batch),
+            pdf_text=pdf_text,
         )
     except Exception as exc:
         logger.warning("process_as_single_corpus failed for batch %s: %s", batch.id, exc)
@@ -373,6 +374,22 @@ def _claim_batch(batch: UploadBatch, *, forbid_statuses: tuple) -> UploadBatch:
         locked.split_error_message = ""
         locked.save(update_fields=["split_status", "split_error_message"])
     return locked
+
+
+def _earlier_ocr_results(batch: UploadBatch) -> dict[int, dict]:
+    """Table pages this batch's PDF already had OCR'd successfully by an
+    earlier detection (kept in each DetectedCorpus's page provenance), so
+    "process as one study" after detection reuses them instead of running
+    Docling on the same pages again."""
+    cache: dict[int, dict] = {}
+    for detected in batch.detected_corpora.all():
+        for page in detected.cached_page_provenance or []:
+            if page.get("extraction_method") == "ocr" and page.get("ocr_succeeded") and page.get("page_num"):
+                cache.setdefault(page["page_num"], {
+                    "final_text": page.get("final_text", ""),
+                    "ocr_duration_ms": page.get("ocr_duration_ms"),
+                })
+    return cache
 
 
 def _create_detected_corpus(batch: UploadBatch, idx: int, corpus: dict, page_events: list[dict]) -> DetectedCorpus:

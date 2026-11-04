@@ -59,13 +59,11 @@ import concurrent.futures
 import re
 import time
 
-import pymupdf
-
+from .pdf_text import PdfText
 from .schemas import Document
 from .utils import (
     chunk_integrated,
     chunk_report,
-    clean_pymupdf_text,
     detect_sections,
     is_table,
     is_toc,
@@ -127,8 +125,14 @@ def _pages_to_documents(
     raw_pages: list[str] | None = None,
     on_page=None,
     ocr_timeout_seconds: float | None = None,
+    ocr_cache: dict[int, dict] | None = None,
 ):
     """Cleans/OCRs table pages and drops TOC pages, turning the rest into Documents.
+
+    `ocr_cache`, if given, maps a page number to an earlier successful OCR
+    result for that page (`{'final_text': ..., 'ocr_duration_ms': ...}`).
+    A table page found there reuses that text instead of running Docling
+    again; every new successful OCR is added to it.
 
     `on_page`, if given, is called once per page *within `page_range`*
     (kept or dropped-as-TOC alike, so a caller building a full audit trail
@@ -159,7 +163,15 @@ def _pages_to_documents(
         ocr_error = None
         ocr_duration_ms = None
 
-        if is_tbl:
+        cached_ocr = ocr_cache.get(page_num) if (is_tbl and ocr_cache is not None) else None
+        if cached_ocr is not None:
+            # Same page, same PDF, already OCR'd successfully: reuse it.
+            final_text = cached_ocr['final_text']
+            extraction_method = "ocr"
+            ocr_attempted = True
+            ocr_succeeded = True
+            ocr_duration_ms = cached_ocr.get('ocr_duration_ms')
+        elif is_tbl:
             ocr_attempted = True
             ocr_start = time.monotonic()
             try:
@@ -175,6 +187,8 @@ def _pages_to_documents(
                 ocr_error = f"{type(exc).__name__}: {exc}"
                 final_text = cleaned_text
             ocr_duration_ms = (time.monotonic() - ocr_start) * 1000
+            if ocr_succeeded and ocr_cache is not None:
+                ocr_cache[page_num] = {'final_text': final_text, 'ocr_duration_ms': ocr_duration_ms}
 
         page_is_toc = is_toc(final_text)
 
@@ -222,8 +236,22 @@ def _corpus_review_metadata(docs, summary, title_page, shared_page_numbers=None)
     }
 
 
-def _get_summary(study_fp: str, page_range: list[int] | None = None):
-    target_sections = detect_sections(pdf_fp=study_fp, target_titles=SUMMARY_TARGETS, searching=True)
+def _get_summary(study_fp: str, page_range: list[int] | None = None, pdf_text: PdfText | None = None):
+    """The study's summary/abstract, searched ONLY within `page_range` when
+    one is given.
+
+    Bug fixed here: the search used to run over the whole PDF and keep only
+    the first summary pages it found, which were then dropped for being
+    outside the study's range, so after a split every study except the
+    first got no summary. The search now sees only this study's pages
+    (other pages are blanked, keeping real page numbers).
+    """
+    if pdf_text is None:
+        pdf_text = PdfText.from_file(study_fp)
+    target_sections = detect_sections(
+        pdf_fp=None, target_titles=SUMMARY_TARGETS, searching=True,
+        pages=pdf_text.raw_pages_in(page_range),
+    )
 
     texts, page_nums = [], []
     for t in target_sections:
@@ -248,6 +276,7 @@ def build_corpora(
     negative_titles: list[str] | None = None,
     on_page=None,
     ocr_timeout_seconds: float | None = None,
+    ocr_cache: dict[int, dict] | None = None,
 ):
     """
     Returns a list of corpus dicts for `study_fp`, checked in priority order:
@@ -274,35 +303,41 @@ def build_corpora(
     if negative_titles is None:
         negative_titles = ["environmental", "residue"]
 
+    # The PDF's text is read ONCE here and shared by every step below
+    # (raw text for integrated detection and page numbers, cleaned text for
+    # scoring and study pages). `ocr_cache` makes sure no table page is
+    # OCR'd twice, within this call or across calls given the same dict.
+    pdf_text = PdfText.from_file(study_fp)
+    pages = pdf_text.raw_pages
+    clean_pages = pdf_text.clean_pages
+    if ocr_cache is None:
+        ocr_cache = {}
+
     chunks = None
     if split:
-        with pymupdf.open(study_fp) as doc:
-            study_pages = len(doc)
+        study_pages = pdf_text.page_count
         if study_pages >= minimum_page_for_split:
             chunks = chunk_report(
                 pdf_fp=study_fp,
                 targets=target_study_words,
                 store_chunks_locally=store_split_results,
                 store_fp=store_fp,
+                pdf_text=pdf_text,
             )
 
     # ---------------------------------------------------------- split reports
     if chunks:
-        with pymupdf.open(study_fp) as doc:
-            pages = [p.get_text() for p in doc]
-        clean_pages = [clean_pymupdf_text(p) for p in pages]
-
         corpora = []
         for c in chunks:
             page_range = c.page_range
             docs = _pages_to_documents(
                 study_fp, clean_pages, page_range=page_range, raw_pages=pages,
-                on_page=on_page, ocr_timeout_seconds=ocr_timeout_seconds,
+                on_page=on_page, ocr_timeout_seconds=ocr_timeout_seconds, ocr_cache=ocr_cache,
             )
 
             range_pages = [clean_pages[p - 1] for p in page_range if p - 1 < len(clean_pages)]
             title_page = _find_title_page(range_pages, page_offset=page_range[0] - 1, max_pages=6)
-            summary = _get_summary(study_fp, page_range=page_range)
+            summary = _get_summary(study_fp, page_range=page_range, pdf_text=pdf_text)
 
             corpora.append({
                 'label': f"{page_range[0]}_{page_range[-1]}",
@@ -316,7 +351,7 @@ def build_corpora(
         return corpora
 
     # ----------------------------------------------------- integrated reports
-    sections = chunk_integrated(pdf_fp=study_fp)
+    sections = chunk_integrated(pdf_fp=study_fp, pdf_text=pdf_text)
 
     shared_high_level_titles = ['summary', 'chemistry', 'conclusion', 'introduction']
     shared_in_level_titles = ['summary', 'conclusion', 'introduction']
@@ -353,9 +388,6 @@ def build_corpora(
                     shared_sections.append(s)
 
     if target_sections:
-        with pymupdf.open(study_fp) as doc:
-            pages = [p.get_text() for p in doc]
-        clean_pages = [clean_pymupdf_text(p) for p in pages]
         title_page = _find_title_page(clean_pages)
 
         corpora = []
@@ -396,15 +428,12 @@ def build_corpora(
         return corpora
 
     # --------------------------------------------------------- single study
-    with pymupdf.open(study_fp) as doc:
-        pages = [p.get_text() for p in doc]
-    clean_pages = [clean_pymupdf_text(p) for p in pages]
-
     docs = _pages_to_documents(
-        study_fp, clean_pages, raw_pages=pages, on_page=on_page, ocr_timeout_seconds=ocr_timeout_seconds
+        study_fp, clean_pages, raw_pages=pages, on_page=on_page, ocr_timeout_seconds=ocr_timeout_seconds,
+        ocr_cache=ocr_cache,
     )
     title_page = _find_title_page(clean_pages)
-    summary = _get_summary(study_fp)
+    summary = _get_summary(study_fp, pdf_text=pdf_text)
 
     return [{
         'label': None,
@@ -423,6 +452,8 @@ def build_corpus_for_page_range(
     label: str | None = None,
     on_page=None,
     ocr_timeout_seconds: float | None = None,
+    ocr_cache: dict[int, dict] | None = None,
+    pdf_text: PdfText | None = None,
 ):
     """Builds exactly one corpus from an explicit, already-decided page
     range — for Phase 4's confirmed-split-boundary case, where the page
@@ -437,18 +468,19 @@ def build_corpus_for_page_range(
     corpus and a confirmed-split-segment corpus are indistinguishable to
     everything downstream (VectorStore, the graph, StudyPage creation).
     """
-    with pymupdf.open(study_fp) as doc:
-        pages = [p.get_text() for p in doc]
-    clean_pages = [clean_pymupdf_text(p) for p in pages]
+    if pdf_text is None:
+        pdf_text = PdfText.from_file(study_fp)
+    pages = pdf_text.raw_pages
+    clean_pages = pdf_text.clean_pages
 
     docs = _pages_to_documents(
         study_fp, clean_pages, page_range=page_range, raw_pages=pages,
-        on_page=on_page, ocr_timeout_seconds=ocr_timeout_seconds,
+        on_page=on_page, ocr_timeout_seconds=ocr_timeout_seconds, ocr_cache=ocr_cache,
     )
 
     range_pages = [clean_pages[p - 1] for p in page_range if p - 1 < len(clean_pages)]
     title_page = _find_title_page(range_pages, page_offset=page_range[0] - 1, max_pages=6)
-    summary = _get_summary(study_fp, page_range=page_range)
+    summary = _get_summary(study_fp, page_range=page_range, pdf_text=pdf_text)
 
     return {
         'label': label,
