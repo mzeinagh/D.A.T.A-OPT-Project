@@ -989,6 +989,20 @@ def is_toc(text: str, min_entries: int = 4, min_ratio: float = 0.2,words_thresho
         return True
 
     # -------------------------------------------------------------
+    # Reject pages of running text
+    # -------------------------------------------------------------
+    # Reports that put section numbers ("4.1") and page numbers on lines of
+    # their own looked like contents pages to the checks below, so real
+    # body pages were dropped and never reached the AI. A contents page has
+    # almost no sentences: lines of 8+ words that don't end in a page number.
+    prose_lines = sum(
+        1 for l in non_blank_lines
+        if len(l.split()) >= 8 and not re.search(r"(\d|\b[ivxlcdm]+)\s*$", l, re.IGNORECASE)
+    )
+    if prose_lines >= 4:
+        return False
+
+    # -------------------------------------------------------------
     # Reject obvious tables
     # -------------------------------------------------------------
 
@@ -2098,7 +2112,7 @@ def chunk_report(pdf_fp:str, num_batches:int|None = None, batch_size:int|None = 
     
     return chunks
 
-def chunk_integrated(pdf_fp:str, pdf_text=None):
+def chunk_integrated(pdf_fp:str, pdf_text=None, chapters: bool = False):
     """
     Integrated-study detection and chunking for multi-study regulatory PDFs
     (e.g. NRA/APVMA-style Public Release Summaries that stitch together a
@@ -2126,6 +2140,10 @@ def chunk_integrated(pdf_fp:str, pdf_text=None):
     `pdf_text`: optional `core_pipeline.pdf_text.PdfText` already read by
     the caller. Its RAW pages are used, never the cleaned ones, so section
     structure is exactly the same as reading the PDF here.
+
+    `chapters=True` returns the report's chapters (title and 1-based page
+    range) instead of sections; `build_corpora` makes one study per
+    assessment chapter from these.
 
     Note: this only works on PDFs with an extractable text layer. Scanned pages
     with no OCR'd text layer (checked via `has_text_layer()`) will silently
@@ -2223,15 +2241,36 @@ def chunk_integrated(pdf_fp:str, pdf_text=None):
         """Locate TOC page(s) in the first `max_pages_to_scan` pages and return
         the concatenated raw text, page order preserved. Plug in your existing
         `is_toc()` via `is_toc_fn`; otherwise falls back to `_looks_like_toc`."""
+        hits = _toc_hits(doc, is_toc_fn=is_toc_fn, max_pages_to_scan=max_pages_to_scan)
+        if not hits:
+            return None
+        return "\n".join(t for _, t in hits)
+
+
+    def _body_start(doc, is_toc_fn=None) -> int:
+        """First page index after the contents pages, where the search for
+        chapter headings starts (otherwise a chapter title was "found" on
+        the contents page itself)."""
+        hits = _toc_hits(doc, is_toc_fn=is_toc_fn)
+        return hits[-1][0] + 1 if hits else 0
+
+
+    def _toc_hits(doc, is_toc_fn=None, max_pages_to_scan: int = 15) -> list:
         hits = []
+        previous_was_toc = False
         for i in range(min(max_pages_to_scan, doc.page_count)):
             text = doc[i].get_text()
             matched = is_toc_fn(text) if is_toc_fn is not None else _looks_like_toc(text)
+            # A contents list that runs onto the next page: that page often
+            # has no "Contents" heading, so the check above misses it, and
+            # every chapter listed there was lost. Accept the page right
+            # after a contents page when it is still laid out like one.
+            if not matched and previous_was_toc:
+                matched = _looks_like_toc(text) and len(parse_toc_entries(text)) >= 3
             if matched:
                 hits.append((i, text))
-        if not hits:
-            return None
-        return "\n".join(t for _, t in sorted(hits, key=lambda x: x[0]))
+            previous_was_toc = bool(matched)
+        return hits
 
 
     def parse_toc_entries(toc_text: str) -> list[dict]:
@@ -2302,11 +2341,26 @@ def chunk_integrated(pdf_fp:str, pdf_text=None):
         heading-like lines. Returns [{"title", "page"}], in reading order."""
         found = []
         end_page = min(end_page, doc.page_count - 1)
+        repeated = _repeated_lines(doc)
         for p in range(start_page, max(end_page, start_page) + 1):
             for line in doc[p].get_text().splitlines():
+                if line.strip() in repeated:
+                    continue  # running page header/footer, not a heading
                 if _looks_like_heading_line(line):
                     found.append({"title": line.strip(), "page": p})
         return found
+
+
+    def _repeated_lines(doc, min_share: float = 0.25, min_pages: int = 3) -> set[str]:
+        """Lines printed on many pages (running headers and footers such as
+        "PUBLIC RELEASE SUMMARY—AMITRON 700WG HERBICIDE"). They look like
+        headings, so without this every copy became a section of its own."""
+        from collections import Counter
+        counts = Counter()
+        for p in range(doc.page_count):
+            counts.update({l.strip() for l in doc[p].get_text().splitlines() if l.strip()})
+        threshold = max(min_pages, min_share * doc.page_count)
+        return {line for line, n in counts.items() if n >= threshold}
 
 
     def _has_clustered_study_subsections(headings: list[dict], min_hits: int = 3, max_page_span: int = 6) -> bool:
@@ -2356,22 +2410,32 @@ def chunk_integrated(pdf_fp:str, pdf_text=None):
         full page range if either heading can't be located verbatim."""
         blob = "\n".join(doc[p].get_text() for p in range(start_page, end_page + 1))
 
+        # The whole heading is matched, so the text starts after it. Matching
+        # only its first 20 characters used to start the text in the middle
+        # of a long heading ("...SUMMA" -> "RY—AMITRON ...").
+        def _find(title, text):
+            m = re.search(re.escape(title), text, re.IGNORECASE)
+            return m or re.search(re.escape(title[:20]), text, re.IGNORECASE)
+
         start_idx = 0
         if start_title:
-            m = re.search(re.escape(start_title[:20]), blob, re.IGNORECASE)
+            m = _find(start_title, blob)
             if m:
                 start_idx = m.end()
+                if len(m.group(0)) < len(start_title):  # partial match: skip the rest of the heading line
+                    line_end = blob.find("\n", start_idx)
+                    start_idx = len(blob) if line_end == -1 else line_end
 
         end_idx = len(blob)
         if end_title:
-            m = re.search(re.escape(end_title[:20]), blob[start_idx:], re.IGNORECASE)
+            m = _find(end_title, blob[start_idx:])
             if m:
                 end_idx = start_idx + m.start()
 
         return blob[start_idx:end_idx].strip()
 
 
-    def _resolved_high_level_sections(doc, toc: Optional[str]) -> list[dict]:
+    def _resolved_high_level_sections(doc, toc: Optional[str], search_start: int = 0) -> list[dict]:
         """TOC entries -> [{"title", "page_idx"}], with real page indices
         resolved by searching forward through the body in TOC order (so
         front-matter pagination offsets can't desync page numbers). Entries
@@ -2381,7 +2445,7 @@ def chunk_integrated(pdf_fp:str, pdf_text=None):
             return []
         entries = [e for e in parse_toc_entries(toc) if e["level"] == "high"]
         resolved = []
-        search_from = 0
+        search_from = search_start
         for e in entries:
             page_idx = _resolve_page_index(doc, e["title"], search_from=search_from)
             if page_idx is not None:
@@ -2413,7 +2477,7 @@ def chunk_integrated(pdf_fp:str, pdf_text=None):
             score = 0.0
 
             if toc_text:
-                high_sections = _resolved_high_level_sections(doc, toc_text)
+                high_sections = _resolved_high_level_sections(doc, toc_text, search_start=_body_start(doc, is_toc_fn))
                 high_titles = [h["title"] for h in high_sections]
 
                 assessment_sections = {t for t in high_titles if ASSESSMENT_TOPIC_RE.search(t)}
@@ -2463,7 +2527,7 @@ def chunk_integrated(pdf_fp:str, pdf_text=None):
             if not has_text_layer(doc):
                 return []  # scanned, no OCR text layer -- nothing to chunk
 
-            high_sections = _resolved_high_level_sections(doc, toc) if toc else []
+            high_sections = _resolved_high_level_sections(doc, toc, search_start=_body_start(doc, is_toc_fn)) if toc else []
             if not high_sections:
                 # No usable TOC: treat the whole doc as one "high-level" span
                 # and rely entirely on body headings.
@@ -2528,6 +2592,50 @@ def chunk_integrated(pdf_fp:str, pdf_text=None):
 
         return get_sections(toc_text, pdf_fp, is_toc_fn=is_toc_fn)
     
+    def integrated_chapters(pdf_fp: str, is_toc_fn=None) -> list[dict]:
+        """The report's chapters from its contents list, as
+        [{"title", "first_page", "last_page"}] with 1-based, inclusive page
+        numbers. A page where one chapter ends and the next begins part-way
+        down belongs to both. [] if the report doesn't look integrated."""
+        if is_integrated(pdf_fp, is_toc_fn=is_toc_fn) < 0.5:
+            return []
+        doc = _open_doc(pdf_fp)
+        try:
+            toc_text = get_toc_text(doc, is_toc_fn=is_toc_fn)
+            high_sections = _resolved_high_level_sections(doc, toc_text, search_start=_body_start(doc, is_toc_fn))
+            repeated = _repeated_lines(doc)
+            result = []
+            for i, h in enumerate(high_sections):
+                start = h["page_idx"]
+                if i + 1 < len(high_sections):
+                    nxt = high_sections[i + 1]
+                    end = nxt["page_idx"] if _text_before_heading(doc, nxt, repeated) else nxt["page_idx"] - 1
+                else:
+                    end = doc.page_count - 1
+                end = max(end, start)
+                result.append({"title": h["title"], "first_page": start + 1, "last_page": end + 1})
+            return result
+        finally:
+            doc.close()
+
+
+    def _text_before_heading(doc, heading: dict, repeated: set, min_chars: int = 100) -> bool:
+        """True when the page holding `heading` has real text above it (the
+        end of the previous chapter), ignoring running headers."""
+        norm = re.sub(r"\s+", " ", heading["title"]).strip().upper()
+        before = 0
+        for line in doc[heading["page_idx"]].get_text().splitlines():
+            line = line.strip()
+            if re.sub(r"\s+", " ", line).upper() == norm:
+                break
+            if line and line not in repeated:
+                before += len(line)
+        return before >= min_chars
+
+
+    if chapters:
+        return integrated_chapters(pdf_fp=pdf_fp, is_toc_fn=is_toc)
+
     secs = chunk_integrated(pdf_fp=pdf_fp, is_toc_fn=is_toc)
 
     return secs

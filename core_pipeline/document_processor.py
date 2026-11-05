@@ -4,9 +4,9 @@ Builds one or more retrieval corpora for a single PDF. A PDF can yield:
   1. Several corpora if it's a long, multi-study report and `split=True`
      (each study gets its own chunk, via `chunk_report`).
   2. Several corpora if it's an "integrated" multi-assessment regulatory
-     report (via `chunk_integrated`) — one corpus per matching target
-     section (e.g. per toxicity assessment), sharing any report-wide
-     sections (summary/conclusion/etc).
+     report (via `chunk_integrated`) — one corpus per matching assessment
+     chapter (e.g. the toxicological assessment), sharing any report-wide
+     chapters (summary/introduction/chemistry/conclusion).
   3. A single corpus covering the whole PDF, otherwise.
 
 Each corpus is a dict, ready to be handed to VectorStore.add_documents()
@@ -20,11 +20,8 @@ once and reused for every question:
                             added in Phase 3 so a caller (studies' corpus-
                             detection service) can tell whether a corpus
                             went through the per-page OCR-provenance
-                            instrumentation below, which only the 'single'
-                            and 'split' paths use ('integrated' builds its
-                            documents directly from `chunk_integrated`'s
-                            sections and never calls `ocr_docling`, so
-                            there is nothing to instrument there).
+                            instrumentation below (all three paths now
+                            build their documents page by page through it).
   'assessment_category'  — for 'integrated' corpora, the matched high-level
                             assessment title (e.g. "toxicity",
                             "environmental", "residue"), lowercased; ''
@@ -73,6 +70,7 @@ from .utils import (
 
 # Includes common OCR misspellings, matching the original detection logic.
 SUMMARY_TARGETS = ['summary', 'sumnary', 'abstract']
+CONCLUSION_TARGETS = ['conclusion', 'conclusions']
 
 
 def _run_ocr_with_timeout(study_fp: str, page_num: int, timeout_seconds: float | None):
@@ -236,7 +234,8 @@ def _corpus_review_metadata(docs, summary, title_page, shared_page_numbers=None)
     }
 
 
-def _get_summary(study_fp: str, page_range: list[int] | None = None, pdf_text: PdfText | None = None):
+def _get_summary(study_fp: str, page_range: list[int] | None = None, pdf_text: PdfText | None = None,
+                 targets: list[str] | None = None):
     """The study's summary/abstract, searched ONLY within `page_range` when
     one is given.
 
@@ -248,9 +247,13 @@ def _get_summary(study_fp: str, page_range: list[int] | None = None, pdf_text: P
     """
     if pdf_text is None:
         pdf_text = PdfText.from_file(study_fp)
+    targets = targets or SUMMARY_TARGETS
     target_sections = detect_sections(
-        pdf_fp=None, target_titles=SUMMARY_TARGETS, searching=True,
-        pages=pdf_text.raw_pages_in(page_range),
+        pdf_fp=None, target_titles=targets, searching=True,
+        # Running headers that hold a target word are removed first: a
+        # header such as "PUBLIC RELEASE SUMMARY—..." on every other page
+        # was taken for the summary.
+        pages=pdf_text.without_repeated_lines(pdf_text.raw_pages_in(page_range), containing=targets),
     )
 
     texts, page_nums = [], []
@@ -283,10 +286,7 @@ def build_corpora(
     split chunks -> integrated-report target sections -> whole PDF as one study.
 
     `on_page`/`ocr_timeout_seconds` are forwarded to `_pages_to_documents`
-    for the 'split' and 'single' paths (see its docstring) — the
-    'integrated' path never calls it, so they have no effect there; see
-    the module docstring's note on the 'source' key for how to tell which
-    path a given corpus came from.
+    on every path (see its docstring).
 
     A third pre-existing bug fixed here, confirmed identical in the
     untouched legacy `document_processor.py`: `target_high_level`/
@@ -351,78 +351,59 @@ def build_corpora(
         return corpora
 
     # ----------------------------------------------------- integrated reports
-    sections = chunk_integrated(pdf_fp=study_fp, pdf_text=pdf_text)
+    # One study per assessment chapter (e.g. "TOXICOLOGICAL ASSESSMENT"),
+    # built from that chapter's pages exactly like a split study: each page
+    # is cleaned, table pages are OCR'd, and every page is reported through
+    # `on_page` so its text is saved. Report-wide chapters (introduction,
+    # summary, chemistry, conclusion) are added to every study as shared
+    # pages. This replaced one study per sub-heading, which turned running
+    # page headers and table cells into hundreds of near-empty studies.
+    chapters = chunk_integrated(pdf_fp=study_fp, pdf_text=pdf_text, chapters=True)
 
-    shared_high_level_titles = ['summary', 'chemistry', 'conclusion', 'introduction']
-    shared_in_level_titles = ['summary', 'conclusion', 'introduction']
+    shared_chapter_titles = ['summary', 'chemistry', 'conclusion', 'introduction']
 
-    shared_sections = []
-    target_sections = []
+    shared_pages: set[int] = set()
+    target_chapters = []
+    for ch in chapters:
+        title = ch['title'].lower()
+        if negative_titles and any(n in title for n in negative_titles):
+            continue
+        if any(t in title for t in shared_chapter_titles):
+            shared_pages.update(range(ch['first_page'], ch['last_page'] + 1))
+            continue
+        if any(t in title for t in target_high_level):
+            target_chapters.append(ch)
 
-    if sections:
-        for s in sections:
-            match = re.match(r"^(.*?)\s*->\s*(.*?)$", s.title)
-
-            if match:
-                high_level_title, low_level_title = match.group(1), match.group(2)
-
-                if negative_titles and (
-                    any(n in high_level_title.lower() for n in negative_titles)
-                    or any(n in low_level_title.lower() for n in negative_titles)
-                ):
-                    continue
-
-                # shared sections apply to every corpus in this report — collect once
-                if any(t in high_level_title.lower() for t in shared_high_level_titles):
-                    shared_sections.append(s)
-                    continue
-
-                if any(t in low_level_title.lower() for t in shared_in_level_titles):
-                    shared_sections.append(s)
-                    continue
-
-                if any(t in high_level_title.lower() for t in target_high_level):
-                    target_sections.append(s)
-            else:
-                if any(t in s.title.lower() for t in shared_high_level_titles):
-                    shared_sections.append(s)
-
-    if target_sections:
+    if target_chapters:
         title_page = _find_title_page(clean_pages)
 
         corpora = []
-        for sec in target_sections:
-            match = re.match(r"^(.*?)\s*->\s*(.*?)$", sec.title)
-            high_level_title, low_level_title = match.group(1), match.group(2)
-
-            docs = [
-                Document(content=s.content, metadata={'page_num': s.page_num, 'title': s.title})
-                for s in shared_sections
-            ]
-            docs.append(Document(content=sec.content, metadata={'page_num': sec.page_num, 'title': sec.title}))
-
-            # only take the first matching summary/abstract for this study
-            summaries = [
-                d for d in docs
-                if any(t in d.metadata['title'].lower() for t in SUMMARY_TARGETS)
-                and any(t in d.metadata['title'].lower() for t in target_high_level)
-            ]
-            summary = summaries[0] if summaries else None
+        for ch in target_chapters:
+            own_pages = list(range(ch['first_page'], ch['last_page'] + 1))
+            page_range = sorted(set(own_pages) | shared_pages)
+            docs = _pages_to_documents(
+                study_fp, clean_pages, page_range=page_range, raw_pages=pages,
+                on_page=on_page, ocr_timeout_seconds=ocr_timeout_seconds, ocr_cache=ocr_cache,
+            )
+            summary = _get_summary(study_fp, page_range=own_pages, pdf_text=pdf_text)
+            if summary is None:
+                # Assessment chapters often close with a "Conclusion"
+                # instead of opening with a summary.
+                summary = _get_summary(study_fp, page_range=own_pages, pdf_text=pdf_text, targets=CONCLUSION_TARGETS)
 
             corpora.append({
-                'label': f"{high_level_title}_{low_level_title}",
+                'label': ch['title'],
                 'docs': docs,
                 'summary': summary,
                 'title_page': title_page,
                 'source': 'integrated',
-                # The matched high-level assessment title (e.g. "toxicity",
-                # "environmental", "residue") — never assumed to be
-                # "toxicity" by default; a caller must not treat this corpus
-                # as a toxicity study without checking this field.
-                'assessment_category': high_level_title.strip().lower(),
+                # The chapter title (e.g. "toxicological assessment",
+                # "environmental assessment"), lowercased — never assumed to
+                # be toxicity; a caller must check this field.
+                'assessment_category': ch['title'].strip().lower(),
                 **_corpus_review_metadata(
                     docs, summary, title_page,
-                    shared_page_numbers=[s.page_num for s in shared_sections if isinstance(s.page_num, int)],
+                    shared_page_numbers=sorted(shared_pages - set(own_pages)),
                 ),
             })
         return corpora

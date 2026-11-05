@@ -19,6 +19,8 @@ because it reads the page image, not the text.
 """
 from __future__ import annotations
 
+from collections import Counter
+
 import pymupdf
 
 from .utils import clean_pymupdf_text
@@ -28,6 +30,7 @@ class PdfText:
     def __init__(self, raw_pages: list[str]):
         self.raw_pages = list(raw_pages)
         self._clean_pages: list[str] | None = None
+        self._repeated: set[str] | None = None
 
     @classmethod
     def from_file(cls, pdf_fp: str) -> "PdfText":
@@ -55,6 +58,31 @@ class PdfText:
             return list(self.raw_pages)
         keep = set(page_range)
         return [text if (i + 1) in keep else "" for i, text in enumerate(self.raw_pages)]
+
+    def repeated_lines(self, min_share: float = 0.25, min_pages: int = 3) -> set[str]:
+        """Lines printed on many pages: running headers and footers such as
+        "PUBLIC RELEASE SUMMARY—<product>". They look like headings, so
+        heading searches must ignore them."""
+        if self._repeated is None:
+            counts = Counter()
+            for text in self.raw_pages:
+                counts.update({l.strip() for l in text.splitlines() if l.strip()})
+            threshold = max(min_pages, min_share * len(self.raw_pages))
+            self._repeated = {line for line, n in counts.items() if n >= threshold}
+        return self._repeated
+
+    def without_repeated_lines(self, pages: list[str], containing: list[str] | None = None) -> list[str]:
+        """`pages` with running headers and footers removed; with
+        `containing`, only those holding one of these words (so ordinary
+        text that happens to repeat is kept)."""
+        repeated = self.repeated_lines()
+        if containing is not None:
+            repeated = {l for l in repeated if any(w in l.lower() for w in containing)}
+        def strip(text):
+            lines = text.splitlines(keepends=True)
+            kept = [l for l in lines if l.strip() not in repeated]
+            return text if len(kept) == len(lines) else "".join(kept)
+        return [strip(text) for text in pages]
 
     def as_document(self) -> "_TextOnlyDocument":
         """A read-only stand-in for an open `pymupdf.Document` that serves

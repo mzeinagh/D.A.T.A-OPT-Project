@@ -6,7 +6,6 @@ real (tiny, synthetic) PDF, built with pymupdf directly rather than
 checking in a binary fixture.
 """
 import time
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pymupdf
@@ -220,23 +219,27 @@ class TestCorpusReviewMetadata:
         assert isinstance(corpus["detection_warnings"], list)
 
     def test_integrated_corpus_carries_category_and_shared_pages(self, tmp_path):
-        """Uses SimpleNamespace stand-ins for chunk_integrated's Section
-        (a local dataclass inside that function, not importable directly) —
-        build_corpora's integrated branch only reads .title/.page_num/.content."""
+        """One corpus per assessment chapter, built from the chapter's own
+        pages plus the report-wide chapters' pages (marked shared)."""
         pdf_fp = _make_pdf(tmp_path, ["Title page.", "Toxicity section page.", "Summary page."])
-        shared = SimpleNamespace(page_num=3, content="Overall report summary.", title="Summary")
-        target = SimpleNamespace(page_num=2, content="Toxicity assessment details.", title="Toxicity -> Repeat Dose")
+        chapters = [
+            {"title": "Summary", "first_page": 3, "last_page": 3},
+            {"title": "Toxicity Assessment", "first_page": 2, "last_page": 2},
+        ]
 
-        with patch.object(dp, "chunk_integrated", return_value=[shared, target]):
-            corpora = dp.build_corpora(pdf_fp)
+        seen = []
+        with patch.object(dp, "chunk_integrated", return_value=chapters):
+            corpora = dp.build_corpora(pdf_fp, on_page=seen.append)
 
         assert len(corpora) == 1
         corpus = corpora[0]
         assert corpus["source"] == "integrated"
-        assert corpus["assessment_category"] == "toxicity"
+        assert corpus["assessment_category"] == "toxicity assessment"
         assert corpus["shared_page_numbers"] == [3]
         assert corpus["page_numbers"] == [2, 3]
-        assert corpus["label"] == "Toxicity_Repeat Dose"
+        assert corpus["label"] == "Toxicity Assessment"
+        assert [d.content for d in corpus["docs"]] == ["Toxicity section page.", "Summary page."]
+        assert sorted(e["page_num"] for e in seen) == [2, 3]  # page text is reported, so it gets saved
 
     def test_environmental_and_residue_are_not_toxicity(self, tmp_path):
         """With build_corpora's *default* target_high_level/negative_titles,
@@ -255,7 +258,7 @@ class TestCorpusReviewMetadata:
         test exercises that broadened call shape directly.
         """
         pdf_fp = _make_pdf(tmp_path, ["Environmental section page."])
-        target = SimpleNamespace(page_num=1, content="Environmental fate and effects.", title="Environmental -> Aquatic Toxicity")
+        target = {"title": "Environmental Assessment", "first_page": 1, "last_page": 1}
 
         with patch.object(dp, "chunk_integrated", return_value=[target]):
             corpora = dp.build_corpora(
@@ -265,7 +268,7 @@ class TestCorpusReviewMetadata:
             )
 
         assert corpora[0]["source"] == "integrated"
-        assert corpora[0]["assessment_category"] == "environmental"
+        assert corpora[0]["assessment_category"] == "environmental assessment"
         assert corpora[0]["assessment_category"] != "toxicity"
 
     def test_default_negative_titles_drops_environmental_before_classification(self, tmp_path):
@@ -273,7 +276,7 @@ class TestCorpusReviewMetadata:
         broadened call above reads as a deliberate choice, not a surprise:
         with defaults, this section never becomes its own corpus at all."""
         pdf_fp = _make_pdf(tmp_path, ["Environmental section page."])
-        target = SimpleNamespace(page_num=1, content="Environmental fate and effects.", title="Environmental -> Aquatic Toxicity")
+        target = {"title": "Environmental Assessment", "first_page": 1, "last_page": 1}
 
         with patch.object(dp, "chunk_integrated", return_value=[target]):
             corpora = dp.build_corpora(pdf_fp)

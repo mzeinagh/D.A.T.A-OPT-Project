@@ -277,9 +277,10 @@ class TestMaterializeStudyPages:
         assert study.page_range == [1]
 
     def test_integrated_corpus_with_no_page_provenance_creates_zero_study_pages(self, user, batch, one_question):
-        """The 'integrated' path never calls _pages_to_documents, so it
-        has no per-page OCR provenance at all — confirming it must not
-        crash, it should just produce a Study with zero StudyPage rows."""
+        """A corpus that arrives with no per-page provenance must not crash;
+        it just produces a Study with zero StudyPage rows. (Real integrated
+        corpora now do report their pages; see
+        core_pipeline/tests/test_integrated_chapters.py.)"""
         corpus = _fake_corpus(source="integrated", label="Toxicity", page_numbers=[1], assessment_category="toxicity")
         with patch("studies.corpus_detection.build_corpora", return_value=[corpus]), patch(
             "studies.tasks.run_pipeline_task.delay"
