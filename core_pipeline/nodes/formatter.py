@@ -31,6 +31,9 @@ def formatter(state:GraphState):
         \nFormatting Rules are as follows:
         \n- Disgard every thing aside from the answer, this includes all thinking processes or justifications for the answer.\n
         \n- Ensure that the final response contains ONLY lines in this EXACT format: <category> : <information>.\n
+        \n- The <category> must name what the question asks for (for example CRITICAL EFFECTS for a question about critical effects). Never copy a category from the examples below that does not fit the question.\n
+        \n- If the response lists several findings, keep ALL of them on the one line, separated by semicolons. Do not shorten or drop findings.\n
+        \n- Answer Null only if the response itself says the information was not found or does not apply.\n
         \n
         \nExample of Acceptable Outputs:
         \nDERMAL : Sensitization
@@ -38,6 +41,7 @@ def formatter(state:GraphState):
         \nNUM SUBJECTS : 45
         \nNull: Null (for non-applicable queries to the study)
         \nDILUTIONS: 10% w/w, 15% w/w, 20% w/w
+        \nCRITICAL EFFECTS : decreased body weight gain at 1500 and 3000 ppm; nasal lesions at 3000 ppm; NOEL = 500 ppm
         \nNot applicable. (acceptable response if the query is not applicable to the study. An alternative answer would be Null:Null)
         \n...etc.
 
